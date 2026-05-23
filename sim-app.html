@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"/>
+<meta name="mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="apple-mobile-web-app-title" content="SIM Tracker"/>
+<meta name="theme-color" content="#4f46e5"/>
+<title>SIM Tracker</title>
+<link rel="manifest" href="data:application/json,%7B%22name%22%3A%22SIM%20Tracker%22%2C%22short_name%22%3A%22SIM%20Tracker%22%2C%22start_url%22%3A%22.%2F%22%2C%22display%22%3A%22standalone%22%2C%22background_color%22%3A%22%230a0a1a%22%2C%22theme_color%22%3A%22%234f46e5%22%7D"/>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: #0a0a1a; color: white; font-family: 'Noto Sans Thai', 'Sarabun', sans-serif; }
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 2px; }
+input::placeholder, textarea::placeholder { color: #4b5563; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback } = React;
+
+// ===== STORAGE (localStorage — ถาวร) =====
+const K_SIMS = "simtracker_sims_v1";
+const K_BOT  = "simtracker_bot_v1";
+const K_CHAT = "simtracker_chat_v1";
+const lsGet = (k) => { try { return localStorage.getItem(k); } catch(e) { return null; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch(e) {} };
+const loadAll = () => ({
+  sims: JSON.parse(lsGet(K_SIMS) || "[]"),
+  botToken: lsGet(K_BOT) || "",
+  chatId: lsGet(K_CHAT) || "",
+});
+const saveSims = (s) => lsSet(K_SIMS, JSON.stringify(s));
+const saveBot  = (v) => lsSet(K_BOT, v);
+const saveChat = (v) => lsSet(K_CHAT, v);
+
+// ===== UTILITY =====
+const genTracking = (existing) => {
+  const d = Math.floor(Math.random() * 4) + 2;
+  let n, t = 0;
+  do { n = Math.floor(Math.random() * Math.pow(10, d)).toString().padStart(d, "0"); if (++t > 999) break; } while (existing.has(n));
+  return n;
+};
+const fmtDate = (ts) => new Date(ts).toLocaleDateString("th-TH", { year: "numeric", month: "short", day: "numeric" });
+const fmtTime = (ts) => new Date(ts).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" });
+const todayKey = () => new Date().toISOString().slice(0, 10);
+const tgSend = (bot, chat, text) => {
+  if (!bot || !chat) return;
+  fetch(`https://api.telegram.org/bot${bot}/sendMessage`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: chat, text }),
+  }).catch(() => {});
+};
+
+const GITHUB_BASE = "https://programsimpro-del.github.io/Sim";
+const makeQRUrl = (serial, trackingNo, bot="", chat="") => {
+  let url = `${GITHUB_BASE}/?s=${encodeURIComponent(serial)}&t=${encodeURIComponent(trackingNo)}`;
+  if (bot)  url += `&tgbot=${encodeURIComponent(bot)}`;
+  if (chat) url += `&tgchat=${encodeURIComponent(chat)}`;
+  return url;
+};
+
+// ===== BARCODE =====
+function Barcode({ value, w=320, h=56 }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!ref.current || !value) return;
+    const cv = ref.current, ctx = cv.getContext("2d");
+    const segs = ["11010000100"];
+    for (const ch of value) { let p=""; for (let i=0;i<11;i++) p+=((ch.charCodeAt(0)+32)>>i)&1?"1":"0"; segs.push(p); }
+    segs.push("1100011101011");
+    const full = segs.join(""), bw = Math.max(1, Math.floor((w-4)/full.length));
+    cv.width = full.length*bw+4; cv.height = h;
+    ctx.fillStyle="#fff"; ctx.fillRect(0,0,cv.width,cv.height);
+    ctx.fillStyle="#000";
+    for (let i=0;i<full.length;i++) if(full[i]==="1") ctx.fillRect(2+i*bw,0,bw,h);
+  }, [value]);
+  return <canvas ref={ref} style={{display:"block",margin:"0 auto",maxWidth:"100%"}} />;
+}
+
+// ===== QR =====
+function QR({ text, size=130 }) {
+  const ref = useRef(null);
+  const [ok, setOk] = useState(false);
+  useEffect(() => {
+    if (!text || !ref.current) return;
+    setOk(false);
+    ref.current.innerHTML = "";
+    try { new QRCode(ref.current, { text, width:size, height:size, colorDark:"#000", colorLight:"#fff", correctLevel: QRCode.CorrectLevel.M }); setOk(true); } catch(e) {}
+  }, [text, size]);
+  return (
+    <div style={{position:"relative",width:size,height:size,background:"#fff",borderRadius:4}}>
+      <div ref={ref}/>
+      {!ok && <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,color:"#555"}}>Loading...</div>}
+    </div>
+  );
+}
+
+// ===== STYLES =====
+const S = {
+  root:{minHeight:"100vh",background:"linear-gradient(160deg,#0a0a1a,#0f172a,#1a0a2e)",fontFamily:"'Noto Sans Thai','Sarabun',sans-serif",color:"white"},
+  header:{padding:"14px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",borderBottom:"1px solid rgba(255,255,255,0.08)",background:"rgba(0,0,0,0.4)",position:"sticky",top:0,zIndex:100},
+  tabBar:{display:"flex",overflowX:"auto",borderBottom:"1px solid rgba(255,255,255,0.08)",background:"rgba(0,0,0,0.2)",padding:"0 6px"},
+  tab:{padding:"11px 14px",border:"none",cursor:"pointer",fontSize:12,fontFamily:"inherit",whiteSpace:"nowrap",fontWeight:600,transition:"all 0.2s"},
+  content:{maxWidth:900,margin:"0 auto",padding:"16px 14px",display:"flex",flexDirection:"column",gap:14},
+  card:{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:16,padding:18},
+  sectionTitle:{margin:"0 0 14px",fontSize:15,fontWeight:700,color:"white"},
+  input:{flex:1,padding:"10px 13px",background:"rgba(255,255,255,0.07)",border:"1px solid rgba(255,255,255,0.12)",borderRadius:10,color:"white",fontSize:14,fontFamily:"inherit",outline:"none",width:"100%"},
+  btnP:{padding:"10px 16px",background:"linear-gradient(135deg,#4f46e5,#7c3aed)",color:"white",border:"none",borderRadius:10,fontSize:14,cursor:"pointer",fontWeight:600,whiteSpace:"nowrap",fontFamily:"inherit"},
+  btnS:{padding:"9px 14px",background:"rgba(255,255,255,0.08)",color:"#c4c4d4",border:"1px solid rgba(255,255,255,0.12)",borderRadius:10,fontSize:13,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"},
+  btnG:{padding:"8px 14px",background:"rgba(5,150,105,0.3)",color:"#6ee7b7",border:"1px solid rgba(5,150,105,0.4)",borderRadius:10,fontSize:13,cursor:"pointer",fontFamily:"inherit",fontWeight:600},
+  btnD:{padding:"4px 8px",background:"rgba(220,38,38,0.15)",color:"#fca5a5",border:"1px solid rgba(220,38,38,0.3)",borderRadius:6,fontSize:13,cursor:"pointer",fontFamily:"inherit"},
+  btnDO:{padding:"9px 14px",background:"rgba(220,38,38,0.2)",color:"#fca5a5",border:"1px solid rgba(220,38,38,0.4)",borderRadius:10,fontSize:13,cursor:"pointer",fontFamily:"inherit"},
+  table:{width:"100%",borderCollapse:"collapse",fontSize:13},
+  th:{padding:"9px 10px",textAlign:"left",color:"#8b8fa8",fontWeight:600,borderBottom:"1px solid rgba(255,255,255,0.08)",whiteSpace:"nowrap",fontSize:12},
+  td:{padding:"9px 10px",color:"#e2e8f0",borderBottom:"1px solid rgba(255,255,255,0.04)"},
+};
+
+// ===== CUSTOMER MODAL =====
+function CustomerModal({ sim, onClose }) {
+  const [confirmed, setConfirmed] = useState(false);
+  const taRef = useRef(null);
+  useEffect(() => { setTimeout(() => { if(taRef.current){taRef.current.focus();taRef.current.select();taRef.current.setSelectionRange(0,9999);} },200); },[]);
+  const sel = () => { if(taRef.current){taRef.current.select();taRef.current.setSelectionRange(0,9999);} };
+  const doCopy = () => {
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(sim.serial).then(()=>setConfirmed(true)).catch(()=>{ sel(); try{document.execCommand("copy");}catch(e){} setConfirmed(true); });
+    } else { sel(); try{document.execCommand("copy");}catch(e){} setConfirmed(true); }
+  };
+  return (
+    <div onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.9)",zIndex:999,display:"flex",alignItems:"flex-start",justifyContent:"center",padding:14,overflowY:"auto"}}>
+      <div style={{background:"linear-gradient(160deg,#0f172a,#1e1b4b)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:20,padding:"20px 16px",maxWidth:420,width:"100%",textAlign:"center",marginTop:16,marginBottom:16}}>
+        <div style={{display:"flex",justifyContent:"flex-end",marginBottom:6}}>
+          <button onClick={onClose} style={{background:"rgba(255,255,255,0.1)",border:"none",borderRadius:8,color:"#aaa",fontSize:18,cursor:"pointer",padding:"2px 10px"}}>✕</button>
+        </div>
+        <div style={{fontSize:36,marginBottom:6}}>📱</div>
+        <h2 style={{color:"white",fontSize:19,fontWeight:800,margin:"0 0 4px"}}>รับเลขซีเรียลซิมของคุณ</h2>
+        <div style={{display:"inline-block",background:"rgba(167,139,250,0.15)",border:"1px solid rgba(167,139,250,0.3)",borderRadius:99,padding:"3px 14px",color:"#a78bfa",fontSize:12,fontWeight:700,marginBottom:14}}>เลขติดตาม: {sim.trackingNo}</div>
+        <div style={{background:"white",borderRadius:12,padding:"12px 6px 8px",marginBottom:12}}>
+          <Barcode value={sim.serial} w={300} h={52}/>
+          <div style={{fontFamily:"monospace",fontSize:11,color:"#111",marginTop:5,fontWeight:700,wordBreak:"break-all",letterSpacing:1}}>{sim.serial}</div>
+        </div>
+        <div style={{background:"rgba(79,70,229,0.1)",border:"1px solid rgba(99,102,241,0.4)",borderRadius:12,padding:"11px",marginBottom:10}}>
+          <div style={{color:"#c7d2fe",fontSize:13,fontWeight:700,marginBottom:7}}>เลขซีเรียลซิมของคุณ</div>
+          <textarea ref={taRef} readOnly value={sim.serial} rows={2} onClick={sel} onFocus={sel} onTouchStart={()=>setTimeout(sel,50)}
+            style={{width:"100%",padding:"9px 6px",background:"rgba(255,255,255,0.12)",border:"2px solid #6366f1",borderRadius:8,color:"white",fontSize:17,fontFamily:"monospace",fontWeight:700,letterSpacing:2,textAlign:"center",resize:"none",outline:"none",WebkitUserSelect:"text",userSelect:"text",cursor:"text",lineHeight:1.5,boxSizing:"border-box"}}/>
+        </div>
+        <button onClick={doCopy} style={{width:"100%",padding:"13px",background:confirmed?"linear-gradient(135deg,#059669,#10b981)":"linear-gradient(135deg,#4f46e5,#7c3aed)",color:"white",border:"none",borderRadius:11,fontSize:15,fontWeight:700,cursor:"pointer",marginBottom:9,fontFamily:"inherit"}}>
+          {confirmed?"✅ คัดลอกแล้ว!":"📋 กดเพื่อคัดลอกเลขซีเรียล"}
+        </button>
+        <button onClick={()=>confirmed&&window.open("https://app.true.th/prepaid-registration?language=th","_blank","noopener")}
+          style={{width:"100%",padding:"13px",background:confirmed?"linear-gradient(135deg,#dc2626,#ef4444)":"rgba(100,100,120,0.35)",color:"white",border:"none",borderRadius:11,fontSize:15,fontWeight:700,cursor:confirmed?"pointer":"not-allowed",opacity:confirmed?1:0.5,fontFamily:"inherit"}}>
+          📝 ลงทะเบียนซิม (True)
+        </button>
+        {!confirmed&&<div style={{color:"#f59e0b",fontSize:12,marginTop:8}}>⚠️ กดคัดลอกก่อนแล้วค่อยลงทะเบียน</div>}
+      </div>
+    </div>
+  );
+}
+
+// ===== PENDING TAB =====
+function PendingTab({ sims, onPreview, onMarkScanned }) {
+  const [q, setQ] = useState("");
+  const fl = sims.filter(s => !s.scannedByCustomer && (s.serial.toLowerCase().includes(q.toLowerCase()) || s.trackingNo.includes(q)));
+  return (
+    <div style={S.card}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
+        <h3 style={{...S.sectionTitle,margin:0}}>⏳ รอลูกค้าสแกน ({fl.length})</h3>
+        <span style={{background:"rgba(251,191,36,0.15)",border:"1px solid rgba(251,191,36,0.3)",color:"#fbbf24",borderRadius:99,padding:"3px 12px",fontSize:12,fontWeight:700}}>ยังไม่สแกน</span>
+      </div>
+      <div style={{background:"rgba(99,102,241,0.08)",border:"1px solid rgba(99,102,241,0.25)",borderRadius:10,padding:"9px 12px",marginBottom:12,fontSize:12,color:"#a5b4fc",lineHeight:1.7}}>
+        💡 เมื่อได้รับแจ้งเตือน Telegram → กดปุ่ม <strong style={{color:"#6ee7b7"}}>✅ ลูกค้าสแกนแล้ว</strong>
+      </div>
+      <input style={{...S.input,marginBottom:12}} value={q} onChange={e=>setQ(e.target.value)} placeholder="🔍 ค้นหา..."/>
+      {fl.length===0&&<div style={{textAlign:"center",padding:40,color:"#6ee7b7"}}><div style={{fontSize:40,marginBottom:8}}>🎉</div><div style={{fontWeight:700}}>ลูกค้าสแกนครบแล้ว!</div></div>}
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {fl.map(s=>(
+          <div key={s.serial} style={{background:"rgba(251,191,36,0.05)",border:"1px solid rgba(251,191,36,0.15)",borderRadius:10,padding:"12px 14px"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
+              <div>
+                <div style={{color:"white",fontFamily:"monospace",fontSize:14,fontWeight:700}}>{s.serial}</div>
+                <div style={{color:"#a78bfa",fontSize:12,marginTop:2}}>เลขติดตาม: {s.trackingNo}</div>
+                <div style={{color:"#8b8fa8",fontSize:11,marginTop:2}}>เพิ่มเมื่อ {fmtDate(s.createdAt)}</div>
+              </div>
+              <span style={{background:"rgba(251,191,36,0.2)",color:"#fbbf24",borderRadius:99,padding:"2px 10px",fontSize:11,fontWeight:700,whiteSpace:"nowrap"}}>⏳ รอสแกน</span>
+            </div>
+            <div style={{display:"flex",gap:6}}>
+              <button onClick={()=>onMarkScanned(s.serial)} style={{flex:1,padding:"9px",background:"linear-gradient(135deg,#059669,#10b981)",color:"white",border:"none",borderRadius:9,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>✅ ลูกค้าสแกนแล้ว</button>
+              <button onClick={()=>onPreview(s)} style={{...S.btnS,fontSize:11,padding:"4px 12px"}}>👁</button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ===== SCANNED TAB =====
+function ScannedTab({ sims }) {
+  const [q, setQ] = useState("");
+  const fl = sims.filter(s=>s.scannedByCustomer&&(s.serial.toLowerCase().includes(q.toLowerCase())||s.trackingNo.includes(q)));
+  return (
+    <div style={S.card}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
+        <h3 style={{...S.sectionTitle,margin:0}}>✅ สแกนแล้ว ({fl.length})</h3>
+        <span style={{background:"rgba(16,185,129,0.15)",border:"1px solid rgba(16,185,129,0.3)",color:"#6ee7b7",borderRadius:99,padding:"3px 12px",fontSize:12,fontWeight:700}}>สแกนแล้ว</span>
+      </div>
+      <input style={{...S.input,marginBottom:12}} value={q} onChange={e=>setQ(e.target.value)} placeholder="🔍 ค้นหา..."/>
+      {fl.length===0&&<div style={{textAlign:"center",padding:40,color:"#8b8fa8"}}><div style={{fontSize:40,marginBottom:8}}>📭</div><div>ยังไม่มีลูกค้าสแกน</div></div>}
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {fl.map(s=>(
+          <div key={s.serial} style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:"rgba(16,185,129,0.05)",border:"1px solid rgba(16,185,129,0.15)",borderRadius:10,padding:"12px 14px"}}>
+            <div>
+              <div style={{color:"white",fontFamily:"monospace",fontSize:14,fontWeight:700}}>{s.serial}</div>
+              <div style={{color:"#a78bfa",fontSize:12,marginTop:2}}>เลขติดตาม: {s.trackingNo}</div>
+              <div style={{color:"#6ee7b7",fontSize:11,marginTop:2}}>✅ {fmtDate(s.scannedAt)} {fmtTime(s.scannedAt)}</div>
+            </div>
+            <span style={{background:"rgba(16,185,129,0.2)",color:"#6ee7b7",borderRadius:99,padding:"2px 10px",fontSize:11,fontWeight:700}}>✅</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ===== SETTINGS =====
+function Settings({ botToken, chatId, setBotToken, setChatId, onSave }) {
+  const [b, setB] = useState(botToken);
+  const [c, setC] = useState(chatId);
+  const [testing, setTesting] = useState(false);
+  const [res, setRes] = useState(null);
+  useEffect(()=>{setB(botToken);setC(chatId);},[botToken,chatId]);
+  const test = async () => {
+    if(!b.trim()||!c.trim()){setRes({ok:false,msg:"กรุณากรอก Bot Token และ Chat ID"});return;}
+    setTesting(true);setRes(null);
+    try {
+      const r = await fetch(`https://api.telegram.org/bot${b.trim()}/sendMessage`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({chat_id:c.trim(),text:"✅ ทดสอบจาก SIM Tracker\nระบบแจ้งเตือนทำงานปกติ!"})});
+      const j = await r.json();
+      setRes(j.ok?{ok:true,msg:"✅ ส่งสำเร็จ! เช็ค Telegram ได้เลย"}:{ok:false,msg:`❌ ${j.description||"ผิดพลาด"}`});
+    } catch(e){setRes({ok:false,msg:"❌ เชื่อมต่อไม่ได้"});}
+    setTesting(false);
+  };
+  return (
+    <div style={S.card}>
+      <h3 style={S.sectionTitle}>⚙️ ตั้งค่า Telegram</h3>
+      <div style={{background:"rgba(99,102,241,0.08)",border:"1px solid rgba(99,102,241,0.25)",borderRadius:10,padding:"12px 14px",marginBottom:14,fontSize:12,color:"#a5b4fc",lineHeight:2}}>
+        <strong style={{color:"#c7d2fe"}}>วิธีตั้งค่า:</strong><br/>
+        1. เปิด Telegram → ค้นหา <strong style={{color:"white"}}>@BotFather</strong> → /newbot<br/>
+        2. คัดลอก <strong style={{color:"#fbbf24"}}>Bot Token</strong> ที่ได้<br/>
+        3. เปิดแชท bot → กด Start → ส่งข้อความ<br/>
+        4. เปิด api.telegram.org/bot[TOKEN]/getUpdates → คัดลอก <strong style={{color:"#fbbf24"}}>"id"</strong>
+      </div>
+      <div style={{marginBottom:6,color:"#94a3b8",fontSize:12}}>Bot Token:</div>
+      <input style={{...S.input,marginBottom:10,fontFamily:"monospace",fontSize:12}} value={b} onChange={e=>{setB(e.target.value);setRes(null);}} placeholder="1234567890:AAFxxxxxxx"/>
+      <div style={{marginBottom:6,color:"#94a3b8",fontSize:12}}>Chat ID:</div>
+      <input style={{...S.input,marginBottom:12,fontFamily:"monospace"}} value={c} onChange={e=>{setC(e.target.value);setRes(null);}} placeholder="123456789"/>
+      <div style={{display:"flex",gap:8,marginBottom:10}}>
+        <button style={{...S.btnP,flex:1}} onClick={()=>{setBotToken(b);setChatId(c);saveBot(b);saveChat(c);onSave();}}>💾 บันทึก</button>
+        <button style={{...S.btnS,flex:1,opacity:testing?0.6:1}} onClick={test} disabled={testing}>{testing?"⏳ กำลังส่ง...":"📨 ทดสอบ"}</button>
+      </div>
+      {res&&<div style={{padding:"10px 14px",borderRadius:10,fontSize:13,fontWeight:600,background:res.ok?"rgba(5,150,105,0.15)":"rgba(220,38,38,0.15)",border:`1px solid ${res.ok?"rgba(5,150,105,0.4)":"rgba(220,38,38,0.4)"}`,color:res.ok?"#6ee7b7":"#fca5a5"}}>{res.msg}</div>}
+      {botToken&&chatId&&<div style={{marginTop:10,padding:"8px 12px",background:"rgba(16,185,129,0.08)",border:"1px solid rgba(16,185,129,0.2)",borderRadius:8,fontSize:12,color:"#6ee7b7"}}>✅ ตั้งค่าแล้ว — แจ้งเตือน Telegram เมื่อลูกค้าสแกน</div>}
+    </div>
+  );
+}
+
+// ===== SCANNER =====
+function Scanner({ onScan }) {
+  const [manual, setManual] = useState("");
+  const [cam, setCam] = useState(false);
+  const vRef = useRef(null), stRef = useRef(null);
+  const stopCam = useCallback(()=>{if(stRef.current){stRef.current.getTracks().forEach(t=>t.stop());stRef.current=null;}},[]);
+  useEffect(()=>{
+    if(cam) navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}}).then(st=>{stRef.current=st;if(vRef.current){vRef.current.srcObject=st;vRef.current.play();}}).catch(e=>{alert(e.message);setCam(false);});
+    else stopCam();
+    return stopCam;
+  },[cam,stopCam]);
+  const go=()=>{if(manual.trim()){onScan(manual.trim());setManual("");}};
+  return (
+    <div style={S.card}>
+      <h3 style={S.sectionTitle}>📷 ยิงเลขซีเรียลซิม</h3>
+      <button style={cam?S.btnDO:S.btnS} onClick={()=>setCam(v=>!v)}>{cam?"🔴 ปิดกล้อง":"📷 เปิดกล้อง"}</button>
+      {cam&&<video ref={vRef} style={{width:"100%",maxWidth:400,borderRadius:12,border:"2px solid #4f46e5",display:"block",marginTop:12}} playsInline muted/>}
+      <div style={{display:"flex",gap:8,marginTop:12}}>
+        <input style={S.input} value={manual} onChange={e=>setManual(e.target.value)} placeholder="กรอกหรือสแกนเลขซีเรียลซิม..." onKeyDown={e=>e.key==="Enter"&&go()}/>
+        <button style={S.btnP} onClick={go}>เพิ่ม ➕</button>
+      </div>
+    </div>
+  );
+}
+
+// ===== SIM LIST =====
+function SimList({ sims, onDelete }) {
+  const [q,setQ]=useState(""); const [pg,setPg]=useState(1); const pp=15;
+  const fl=sims.filter(s=>s.serial.toLowerCase().includes(q.toLowerCase())||s.trackingNo.includes(q));
+  const pd=fl.slice((pg-1)*pp,pg*pp), pages=Math.ceil(fl.length/pp);
+  const csv=()=>{
+    const h=["เลขซีเรียล","เลขติดตาม","สแกน","วันที่เพิ่ม","วันที่สแกน"];
+    const r=fl.map(s=>[s.serial,s.trackingNo,s.scannedByCustomer?"✓":"-",fmtDate(s.createdAt),s.scannedAt?fmtDate(s.scannedAt)+" "+fmtTime(s.scannedAt):"-"]);
+    const blob=new Blob(["\uFEFF"+[h,...r].map(x=>x.join(",")).join("\n")],{type:"text/csv;charset=utf-8"});
+    Object.assign(document.createElement("a"),{href:URL.createObjectURL(blob),download:`sims_${todayKey()}.csv`}).click();
+  };
+  return (
+    <div style={S.card}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
+        <h3 style={{...S.sectionTitle,margin:0}}>📋 รายการซิมทั้งหมด ({fl.length})</h3>
+        <button style={S.btnG} onClick={csv}>📥 Export Excel</button>
+      </div>
+      <input style={{...S.input,marginBottom:12}} value={q} onChange={e=>{setQ(e.target.value);setPg(1);}} placeholder="🔍 ค้นหา..."/>
+      {pd.length===0&&<div style={{color:"#8b8fa8",textAlign:"center",padding:32}}>ยังไม่มีข้อมูล</div>}
+      <div style={{overflowX:"auto"}}>
+        <table style={S.table}>
+          <thead><tr>{["#","เลขซีเรียล","เลขติดตาม","สถานะ","วันที่เพิ่ม","ลบ"].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
+          <tbody>
+            {pd.map((s,i)=>(
+              <tr key={s.serial} style={{background:i%2===0?"rgba(255,255,255,0.02)":"transparent"}}>
+                <td style={S.td}>{(pg-1)*pp+i+1}</td>
+                <td style={{...S.td,fontFamily:"monospace",fontSize:12}}>{s.serial}</td>
+                <td style={{...S.td,color:"#a78bfa",fontWeight:700}}>{s.trackingNo}</td>
+                <td style={S.td}><span style={{padding:"2px 8px",borderRadius:99,fontSize:11,background:s.scannedByCustomer?"#064e3b":"#1e1b4b",color:s.scannedByCustomer?"#6ee7b7":"#a5b4fc"}}>{s.scannedByCustomer?"✓ สแกน":"รอสแกน"}</span></td>
+                <td style={{...S.td,fontSize:11,color:"#8b8fa8"}}>{fmtDate(s.createdAt)}</td>
+                <td style={S.td}><button onClick={()=>onDelete(s.serial)} style={S.btnD}>🗑</button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {pages>1&&<div style={{display:"flex",gap:6,justifyContent:"center",marginTop:12,flexWrap:"wrap"}}>
+        {Array.from({length:pages},(_,i)=>i+1).map(p=><button key={p} onClick={()=>setPg(p)} style={{...S.btnS,padding:"4px 10px",background:p===pg?"#4f46e5":undefined,color:p===pg?"white":undefined}}>{p}</button>)}
+      </div>}
+    </div>
+  );
+}
+
+// ===== QR CARD =====
+function QRCard({ sim, selected, onClick, onPreview, bot, chat }) {
+  const qrUrl = makeQRUrl(sim.serial, sim.trackingNo, bot, chat);
+  return (
+    <div style={{background:selected?"rgba(79,70,229,0.2)":"rgba(255,255,255,0.04)",border:`2px solid ${selected?"#4f46e5":"rgba(255,255,255,0.08)"}`,borderRadius:12,padding:10,textAlign:"center"}}>
+      <div onClick={onClick} style={{cursor:"pointer"}}>
+        <div style={{background:"#fff",borderRadius:8,padding:5,display:"inline-block",marginBottom:5}}><QR text={qrUrl} size={110}/></div>
+        <div style={{color:"#a78bfa",fontSize:10,fontWeight:700,marginTop:3}}>เลขติดตาม: {sim.trackingNo}</div>
+        <div style={{color:"#8b8fa8",fontSize:9,marginTop:2,wordBreak:"break-all"}}>{sim.serial.slice(0,18)}{sim.serial.length>18?"…":""}</div>
+        <div style={{color:"#64748b",fontSize:9,marginTop:2}}>สแกนเพื่อลงทะเบียนซิม</div>
+      </div>
+      <button onClick={e=>{e.stopPropagation();onPreview();}} style={{...S.btnS,width:"100%",marginTop:7,fontSize:10,padding:"4px 0"}}>👁 ทดสอบ</button>
+    </div>
+  );
+}
+
+// ===== QR MANAGER =====
+function QRManager({ sims, onPreview, bot, chat }) {
+  const [sel, setSel] = useState([]);
+  const [q, setQ] = useState("");
+  const [printing, setPrinting] = useState(false);
+  const fl = sims.filter(s=>s.serial.toLowerCase().includes(q.toLowerCase())||s.trackingNo.includes(q));
+  const tog = (serial) => setSel(prev=>prev.includes(serial)?prev.filter(s=>s!==serial):[...prev,serial]);
+
+  const doPrint = async () => {
+    const picked = sims.filter(s=>sel.includes(s.serial));
+    setPrinting(true);
+    const qrDataUrls = {};
+    for (const s of picked) {
+      const url = makeQRUrl(s.serial, s.trackingNo, bot, chat);
+      await new Promise(resolve => {
+        const div = document.createElement("div");
+        div.style.cssText = "position:absolute;left:-9999px;top:-9999px";
+        document.body.appendChild(div);
+        try {
+          new QRCode(div, { text:url, width:160, height:160, colorDark:"#000", colorLight:"#fff", correctLevel:QRCode.CorrectLevel.M });
+          setTimeout(() => {
+            const cv = div.querySelector("canvas");
+            if (cv) qrDataUrls[s.serial] = cv.toDataURL();
+            document.body.removeChild(div);
+            resolve();
+          }, 400);
+        } catch(e) { try{document.body.removeChild(div);}catch(e2){} resolve(); }
+      });
+    }
+    const cards = picked.map(s=>{
+      const d = qrDataUrls[s.serial]||"";
+      return `<div class="card">${d?`<img src="${d}" width="160" height="160"/>`:`<div style="width:160px;height:160px;background:#eee;display:flex;align-items:center;justify-content:center;font-size:11px">QR</div>`}<div class="trk">เลขติดตาม: ${s.trackingNo}</div><div class="serial">${s.serial}</div><div class="lbl">สแกนเพื่อลงทะเบียนซิมและรับบาร์โค้ดซิม</div></div>`;
+    }).join("");
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>พิมพ์ QR</title><style>*{box-sizing:border-box}body{font-family:'Sarabun',sans-serif;background:#fff;margin:0;padding:20px}.grid{display:flex;flex-wrap:wrap;gap:14px}.card{border:1px solid #ccc;border-radius:10px;padding:12px;width:184px;text-align:center;page-break-inside:avoid}.trk{font-size:12px;font-weight:700;color:#4f46e5;margin-top:6px}.serial{font-size:10px;color:#333;margin-top:3px;word-break:break-all;font-family:monospace}.lbl{font-size:10px;color:#444;margin-top:4px;line-height:1.4}@media print{.np{display:none!important}@page{margin:8mm}}</style></head><body><div class="np" style="margin-bottom:16px"><button onclick="window.print()" style="padding:12px 28px;font-size:16px;cursor:pointer;background:#4f46e5;color:white;border:none;border-radius:8px;font-weight:700">🖨️ พิมพ์ / เลือกเครื่องปริ้น</button></div><div class="grid">${cards}</div><script>window.onload=function(){setTimeout(function(){window.print();},600)};<\/script></body></html>`;
+    const blob = new Blob([html],{type:"text/html;charset=utf-8"});
+    const url = URL.createObjectURL(blob);
+    const a = Object.assign(document.createElement("a"),{href:url,target:"_blank",rel:"noopener"});
+    document.body.appendChild(a); a.click();
+    setTimeout(()=>{document.body.removeChild(a);URL.revokeObjectURL(url);},1000);
+    setPrinting(false);
+  };
+
+  return (
+    <div style={S.card}>
+      <h3 style={S.sectionTitle}>🔲 จัดการ QR Code</h3>
+      <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
+        <input style={{...S.input,flex:1,minWidth:160}} value={q} onChange={e=>setQ(e.target.value)} placeholder="🔍 ค้นหา..."/>
+        <button style={S.btnS} onClick={()=>setSel(fl.map(s=>s.serial))}>เลือกทั้งหมด ({fl.length})</button>
+        <button style={S.btnS} onClick={()=>setSel([])}>ยกเลิก</button>
+        <button style={{...S.btnP,opacity:sel.length===0||printing?0.5:1}} onClick={()=>sel.length>0&&!printing&&doPrint()} disabled={sel.length===0||printing}>
+          {printing?"⏳ กำลังสร้าง...":"🖨️ พิมพ์ QR ("+sel.length+")"}
+        </button>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(145px,1fr))",gap:10}}>
+        {fl.slice(0,30).map(s=><QRCard key={s.serial} sim={s} selected={sel.includes(s.serial)} onClick={()=>tog(s.serial)} onPreview={()=>onPreview(s)} bot={bot} chat={chat}/>)}
+      </div>
+      {fl.length===0&&<div style={{color:"#8b8fa8",textAlign:"center",padding:32}}>ยังไม่มีข้อมูล</div>}
+    </div>
+  );
+}
+
+// ===== SUMMARY =====
+function Summary({ sims }) {
+  const sm={};
+  sims.forEach(s=>{
+    const k=new Date(s.createdAt).toISOString().slice(0,10);
+    if(!sm[k])sm[k]={a:0,sc:0}; sm[k].a++;
+    if(s.scannedByCustomer){const k2=new Date(s.scannedAt).toISOString().slice(0,10);if(!sm[k2])sm[k2]={a:0,sc:0};sm[k2].sc++;}
+  });
+  const dates=Object.keys(sm).sort().reverse();
+  return (
+    <div style={S.card}>
+      <h3 style={S.sectionTitle}>📊 สรุปยอดรายวัน</h3>
+      {!dates.length&&<div style={{color:"#8b8fa8",textAlign:"center",padding:32}}>ยังไม่มีข้อมูล</div>}
+      <div style={{overflowX:"auto"}}>
+        <table style={S.table}>
+          <thead><tr>{["วันที่","ซิมที่เพิ่ม","สแกน","อัตรา"].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
+          <tbody>
+            {dates.map((d,i)=>{
+              const row=sm[d],rate=row.a>0?((row.sc/row.a)*100).toFixed(0):0;
+              return (<tr key={d} style={{background:i%2===0?"rgba(255,255,255,0.02)":"transparent"}}>
+                <td style={S.td}>{new Date(d).toLocaleDateString("th-TH",{year:"numeric",month:"long",day:"numeric"})}</td>
+                <td style={{...S.td,color:"#a5b4fc"}}>{row.a}</td>
+                <td style={{...S.td,color:"#6ee7b7"}}>{row.sc}</td>
+                <td style={S.td}><div style={{display:"flex",alignItems:"center",gap:6}}><div style={{height:6,width:70,background:"rgba(255,255,255,0.1)",borderRadius:3,overflow:"hidden"}}><div style={{height:"100%",width:`${rate}%`,background:"linear-gradient(90deg,#4f46e5,#a78bfa)",borderRadius:3}}/></div><span style={{fontSize:12,color:"#8b8fa8"}}>{rate}%</span></div></td>
+              </tr>);
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ===== MAIN APP =====
+function App() {
+  const [sims, setSims] = useState([]);
+  const [botToken, setBotToken] = useState("");
+  const [chatId, setChatId] = useState("");
+  const [tab, setTab] = useState("scanner");
+  const [toast, setToast] = useState(null);
+  const [modal, setModal] = useState(null);
+
+  useEffect(() => {
+    const d = loadAll();
+    setSims(d.sims); setBotToken(d.botToken); setChatId(d.chatId);
+  }, []);
+
+  const toast3 = (msg,type="ok") => { setToast({msg,type}); setTimeout(()=>setToast(null),3000); };
+
+  const addSim = (serial) => {
+    if (sims.find(s=>s.serial===serial)) { toast3(`⚠️ ${serial} มีอยู่แล้ว`,"warn"); return; }
+    const trackingNo = genTracking(new Set(sims.map(s=>s.trackingNo)));
+    const ns = {serial,trackingNo,scannedByCustomer:false,scannedAt:null,createdAt:Date.now()};
+    setSims(prev=>{const u=[ns,...prev];saveSims(u);return u;});
+    toast3(`✅ เพิ่มซิม ${serial} (เลขติดตาม: ${trackingNo})`);
+  };
+
+  const delSim = (serial) => {
+    if(!confirm(`ลบซิม ${serial} ?`)) return;
+    setSims(prev=>{const u=prev.filter(s=>s.serial!==serial);saveSims(u);return u;});
+    toast3("🗑️ ลบแล้ว","warn");
+  };
+
+  const markScanned = (serial) => {
+    const now = Date.now();
+    setSims(prev=>{
+      const u=prev.map(s=>{
+        if(s.serial!==serial) return s;
+        tgSend(botToken,chatId,`✅ ลูกค้าสแกน QR Code แล้ว!\n📋 เลขซีเรียลซิม: ${s.serial}\n🔢 เลขติดตาม: ${s.trackingNo}\n⏰ เวลา: ${new Date(now).toLocaleString("th-TH")}`);
+        return {...s,scannedByCustomer:true,scannedAt:now};
+      });
+      saveSims(u); return u;
+    });
+    toast3("✅ อัปเดตสถานะแล้ว");
+  };
+
+  const today = sims.filter(s=>s.scannedByCustomer&&new Date(s.scannedAt).toISOString().slice(0,10)===todayKey()).length;
+  const pendingCount = sims.filter(s=>!s.scannedByCustomer).length;
+  const scannedCount = sims.filter(s=>s.scannedByCustomer).length;
+
+  const tabs = [
+    {id:"scanner",label:"📷 ยิงซิม"},
+    {id:"pending",label:`⏳ รอสแกน (${pendingCount})`},
+    {id:"scanned",label:`✅ สแกนแล้ว (${scannedCount})`},
+    {id:"list",label:"📋 รายการ"},
+    {id:"qr",label:"🔲 QR Code"},
+    {id:"summary",label:"📊 สรุป"},
+    {id:"settings",label:"⚙️ ตั้งค่า"},
+  ];
+
+  return (
+    <div style={S.root}>
+      {toast&&<div style={{position:"fixed",top:20,right:16,background:toast.type==="warn"?"#92400e":"#064e3b",color:"white",padding:"11px 18px",borderRadius:10,zIndex:9999,fontSize:14,maxWidth:300,boxShadow:"0 4px 20px rgba(0,0,0,.5)",animation:"fadeIn 0.3s"}}>{toast.msg}</div>}
+      {modal&&<CustomerModal sim={modal} onClose={()=>setModal(null)}/>}
+
+      <div style={S.header}>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <div style={{width:38,height:38,borderRadius:10,background:"linear-gradient(135deg,#4f46e5,#a78bfa)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>📶</div>
+          <div>
+            <div style={{color:"white",fontWeight:800,fontSize:17}}>SIM Tracker</div>
+            <div style={{color:"#8b8fa8",fontSize:11}}>ระบบติดตามการเปิดใช้งานซิม</div>
+          </div>
+        </div>
+        <div style={{display:"flex",gap:16}}>
+          <div style={{textAlign:"center"}}><div style={{color:"#a78bfa",fontWeight:700,fontSize:20}}>{sims.length}</div><div style={{color:"#8b8fa8",fontSize:10}}>ซิมทั้งหมด</div></div>
+          <div style={{textAlign:"center"}}><div style={{color:"#6ee7b7",fontWeight:700,fontSize:20}}>{today}</div><div style={{color:"#8b8fa8",fontSize:10}}>สแกนวันนี้</div></div>
+        </div>
+      </div>
+
+      <div style={S.tabBar}>
+        {tabs.map(t=><button key={t.id} onClick={()=>setTab(t.id)} style={{...S.tab,background:tab===t.id?"rgba(79,70,229,0.3)":"transparent",color:tab===t.id?"#a78bfa":"#8b8fa8",borderBottom:tab===t.id?"2px solid #4f46e5":"2px solid transparent"}}>{t.label}</button>)}
+      </div>
+
+      <div style={S.content}>
+        {tab==="scanner"&&(
+          <>
+            <Scanner onScan={addSim}/>
+            {sims.length>0&&(
+              <div style={S.card}>
+                <h3 style={S.sectionTitle}>🕐 เพิ่มล่าสุด</h3>
+                {sims.slice(0,5).map(s=>(
+                  <div key={s.serial} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"9px 0",borderBottom:"1px solid rgba(255,255,255,0.06)"}}>
+                    <div>
+                      <div style={{color:"white",fontFamily:"monospace",fontSize:13}}>{s.serial}</div>
+                      <div style={{color:"#a78bfa",fontSize:11}}>เลขติดตาม: {s.trackingNo}</div>
+                    </div>
+                    <button onClick={()=>setModal(s)} style={{...S.btnS,fontSize:11,padding:"3px 9px"}}>👁 ทดสอบ</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+        {tab==="pending"&&<PendingTab sims={sims} onPreview={s=>setModal(s)} onMarkScanned={markScanned}/>}
+        {tab==="scanned"&&<ScannedTab sims={sims}/>}
+        {tab==="list"&&<SimList sims={sims} onDelete={delSim}/>}
+        {tab==="qr"&&<QRManager sims={sims} onPreview={s=>setModal(s)} bot={botToken} chat={chatId}/>}
+        {tab==="summary"&&<Summary sims={sims}/>}
+        {tab==="settings"&&<Settings botToken={botToken} chatId={chatId} setBotToken={setBotToken} setChatId={setChatId} onSave={()=>toast3("✅ บันทึกแล้ว")}/>}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
