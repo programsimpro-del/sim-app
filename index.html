@@ -208,15 +208,66 @@ function PendingTab({ sims, onPreview, onMarkScanned }) {
 // ===== SCANNED TAB =====
 function ScannedTab({ sims }) {
   const [q, setQ] = useState("");
-  const fl = sims.filter(s=>s.scannedByCustomer&&(s.serial.toLowerCase().includes(q.toLowerCase())||s.trackingNo.includes(q)));
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+
+  const fl = sims.filter(s => {
+    if (!s.scannedByCustomer) return false;
+    if (!(s.serial.toLowerCase().includes(q.toLowerCase()) || s.trackingNo.includes(q))) return false;
+    if (dateFrom) {
+      const d = new Date(s.scannedAt).toISOString().slice(0,10);
+      if (d < dateFrom) return false;
+    }
+    if (dateTo) {
+      const d = new Date(s.scannedAt).toISOString().slice(0,10);
+      if (d > dateTo) return false;
+    }
+    return true;
+  });
+
+  const exportExcel = () => {
+    const header = ["เลขซีเรียลซิม", "วันที่ลงทะเบียน", "เวลา", "สถานะ"];
+    const rows = fl.map(s => [
+      s.serial,
+      fmtDate(s.scannedAt),
+      fmtTime(s.scannedAt),
+      "ลงทะเบียนซิมแล้ว"
+    ]);
+    const csv = [header, ...rows].map(r => r.map(v => `"${v}"`).join(",")).join("\n");
+    const blob = new Blob(["\uFEFF" + csv], {type:"text/csv;charset=utf-8"});
+    const label = dateFrom||dateTo ? `_${dateFrom||""}${dateTo?"_to_"+dateTo:""}` : "";
+    Object.assign(document.createElement("a"), {
+      href: URL.createObjectURL(blob),
+      download: `sim_registered${label}_${todayKey()}.csv`
+    }).click();
+  };
+
   return (
     <div style={S.card}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
-        <h3 style={{...S.sectionTitle,margin:0}}>✅ สแกนแล้ว ({fl.length})</h3>
-        <span style={{background:"rgba(16,185,129,0.15)",border:"1px solid rgba(16,185,129,0.3)",color:"#6ee7b7",borderRadius:99,padding:"3px 12px",fontSize:12,fontWeight:700}}>สแกนแล้ว</span>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
+        <h3 style={{...S.sectionTitle,margin:0}}>📋 สแกนซิมลงทะเบียนแล้ว ({fl.length})</h3>
+        <button style={S.btnG} onClick={exportExcel}>📥 Export Excel</button>
       </div>
-      <input style={{...S.input,marginBottom:12}} value={q} onChange={e=>setQ(e.target.value)} placeholder="🔍 ค้นหา..."/>
-      {fl.length===0&&<div style={{textAlign:"center",padding:40,color:"#8b8fa8"}}><div style={{fontSize:40,marginBottom:8}}>📭</div><div>ยังไม่มีลูกค้าสแกน</div></div>}
+
+      {/* ตัวกรองวันที่ */}
+      <div style={{background:"rgba(79,70,229,0.08)",border:"1px solid rgba(79,70,229,0.25)",borderRadius:10,padding:"10px 14px",marginBottom:12}}>
+        <div style={{color:"#c7d2fe",fontSize:12,fontWeight:700,marginBottom:8}}>📅 กำหนดช่วงวันที่ (Export เฉพาะช่วงนี้)</div>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+          <div style={{display:"flex",flexDirection:"column",gap:4,flex:1,minWidth:130}}>
+            <label style={{color:"#94a3b8",fontSize:11}}>ตั้งแต่วันที่</label>
+            <input type="date" style={{...S.input,fontSize:13,padding:"8px 10px"}} value={dateFrom} onChange={e=>setDateFrom(e.target.value)}/>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:4,flex:1,minWidth:130}}>
+            <label style={{color:"#94a3b8",fontSize:11}}>ถึงวันที่</label>
+            <input type="date" style={{...S.input,fontSize:13,padding:"8px 10px"}} value={dateTo} onChange={e=>setDateTo(e.target.value)}/>
+          </div>
+          <button style={{...S.btnS,alignSelf:"flex-end",padding:"8px 12px",fontSize:12}} onClick={()=>{setDateFrom("");setDateTo("");}}>ล้างวันที่</button>
+        </div>
+      </div>
+
+      <input style={{...S.input,marginBottom:12}} value={q} onChange={e=>setQ(e.target.value)} placeholder="🔍 ค้นหาเลขซีเรียลหรือเลขติดตาม..."/>
+
+      {fl.length===0&&<div style={{textAlign:"center",padding:40,color:"#8b8fa8"}}><div style={{fontSize:40,marginBottom:8}}>📭</div><div>ยังไม่มีข้อมูลในช่วงวันที่ที่เลือก</div></div>}
       <div style={{display:"flex",flexDirection:"column",gap:8}}>
         {fl.map(s=>(
           <div key={s.serial} style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:"rgba(16,185,129,0.05)",border:"1px solid rgba(16,185,129,0.15)",borderRadius:10,padding:"12px 14px"}}>
@@ -225,7 +276,7 @@ function ScannedTab({ sims }) {
               <div style={{color:"#a78bfa",fontSize:12,marginTop:2}}>เลขติดตาม: {s.trackingNo}</div>
               <div style={{color:"#6ee7b7",fontSize:11,marginTop:2}}>✅ {fmtDate(s.scannedAt)} {fmtTime(s.scannedAt)}</div>
             </div>
-            <span style={{background:"rgba(16,185,129,0.2)",color:"#6ee7b7",borderRadius:99,padding:"2px 10px",fontSize:11,fontWeight:700}}>✅</span>
+            <span style={{background:"rgba(16,185,129,0.2)",color:"#6ee7b7",borderRadius:99,padding:"3px 10px",fontSize:11,fontWeight:700}}>ลงทะเบียนแล้ว</span>
           </div>
         ))}
       </div>
@@ -305,7 +356,7 @@ function SimList({ sims, onDelete }) {
   const fl=sims.filter(s=>s.serial.toLowerCase().includes(q.toLowerCase())||s.trackingNo.includes(q));
   const pd=fl.slice((pg-1)*pp,pg*pp), pages=Math.ceil(fl.length/pp);
   const csv=()=>{
-    const h=["เลขซีเรียล","เลขติดตาม","สแกน","วันที่เพิ่ม","วันที่สแกน"];
+    const h=["เลขซีเรียล","เลขติดตาม","สถานะ","วันที่เพิ่ม","วันที่สแกน"];
     const r=fl.map(s=>[s.serial,s.trackingNo,s.scannedByCustomer?"✓":"-",fmtDate(s.createdAt),s.scannedAt?fmtDate(s.scannedAt)+" "+fmtTime(s.scannedAt):"-"]);
     const blob=new Blob(["\uFEFF"+[h,...r].map(x=>x.join(",")).join("\n")],{type:"text/csv;charset=utf-8"});
     Object.assign(document.createElement("a"),{href:URL.createObjectURL(blob),download:`sims_${todayKey()}.csv`}).click();
@@ -327,7 +378,7 @@ function SimList({ sims, onDelete }) {
                 <td style={S.td}>{(pg-1)*pp+i+1}</td>
                 <td style={{...S.td,fontFamily:"monospace",fontSize:12}}>{s.serial}</td>
                 <td style={{...S.td,color:"#a78bfa",fontWeight:700}}>{s.trackingNo}</td>
-                <td style={S.td}><span style={{padding:"2px 8px",borderRadius:99,fontSize:11,background:s.scannedByCustomer?"#064e3b":"#1e1b4b",color:s.scannedByCustomer?"#6ee7b7":"#a5b4fc"}}>{s.scannedByCustomer?"✓ สแกน":"รอสแกน"}</span></td>
+                <td style={S.td}><span style={{padding:"2px 8px",borderRadius:99,fontSize:11,background:s.scannedByCustomer?"#064e3b":"#1e1b4b",color:s.scannedByCustomer?"#6ee7b7":"#a5b4fc"}}>{s.scannedByCustomer?"✓ ลงทะเบียนแล้ว":"รอสแกน"}</span></td>
                 <td style={{...S.td,fontSize:11,color:"#8b8fa8"}}>{fmtDate(s.createdAt)}</td>
                 <td style={S.td}><button onClick={()=>onDelete(s.serial)} style={S.btnD}>🗑</button></td>
               </tr>
@@ -433,7 +484,7 @@ function Summary({ sims }) {
       {!dates.length&&<div style={{color:"#8b8fa8",textAlign:"center",padding:32}}>ยังไม่มีข้อมูล</div>}
       <div style={{overflowX:"auto"}}>
         <table style={S.table}>
-          <thead><tr>{["วันที่","ซิมที่เพิ่ม","สแกน","อัตรา"].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
+          <thead><tr>{["วันที่","ซิมที่เพิ่ม","สถานะ","อัตรา"].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
           <tbody>
             {dates.map((d,i)=>{
               const row=sm[d],rate=row.a>0?((row.sc/row.a)*100).toFixed(0):0;
@@ -501,7 +552,7 @@ function App() {
   const tabs = [
     {id:"scanner",label:"📷 ยิงซิม"},
     {id:"pending",label:`⏳ รอสแกน (${pendingCount})`},
-    {id:"scanned",label:`✅ สแกนแล้ว (${scannedCount})`},
+    {id:"scanned",label:`📋 สแกนซิมลงทะเบียนแล้ว (${scannedCount})`},
     {id:"list",label:"📋 รายการ"},
     {id:"qr",label:"🔲 QR Code"},
     {id:"summary",label:"📊 สรุป"},
