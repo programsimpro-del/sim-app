@@ -434,14 +434,11 @@ function Scanner({ onScan }) {
             if (text && text.length >= 8) {
               cooldownRef.current = true;
               setLastScan(text);
-              setScanMsg("✅ สแกนได้: " + text);
-              // เพิ่มซิมอัตโนมัติ
-              onScan(text);
-              // cooldown 3 วินาทีก่อนสแกนซิมถัดไป
-              setTimeout(() => {
-                cooldownRef.current = false;
-                setScanMsg("🔍 ชี้กล้องไปที่บาร์โค้ดซิมถัดไป...");
-              }, 3000);
+              setScanMsg("✅ สแกนได้ — กดปุ่ม เพิ่ม ➕ เพื่อบันทึก");
+              // ใส่ลงช่องกรอก ไม่เพิ่มอัตโนมัติ
+              setManual(text);
+              setCam(false); // ปิดกล้องหลังสแกน
+              setTimeout(() => { cooldownRef.current = false; }, 1500);
             }
           }
         });
@@ -501,8 +498,8 @@ function Scanner({ onScan }) {
           </div>
 
           {lastScan && (
-            <div style={{marginTop:8,padding:"8px 14px",background:"rgba(167,139,250,0.1)",border:"1px solid rgba(167,139,250,0.3)",borderRadius:10,fontSize:12,color:"#c4b5fd"}}>
-              สแกนล่าสุด: <strong style={{color:"white",fontFamily:"monospace"}}>{lastScan}</strong>
+            <div style={{marginTop:8,padding:"10px 14px",background:"rgba(5,150,105,0.12)",border:"1px solid rgba(5,150,105,0.4)",borderRadius:10,fontSize:13,color:"#6ee7b7",textAlign:"center"}}>
+              ✅ สแกนได้แล้ว! กดปุ่ม <strong style={{color:"white"}}>เพิ่ม ➕</strong> ด้านล่างเพื่อบันทึก
             </div>
           )}
         </div>
@@ -511,7 +508,7 @@ function Scanner({ onScan }) {
       {/* กรอกเลขเอง */}
       <div style={{display:"flex",gap:8,marginTop:12}}>
         <input style={S.input} value={manual} onChange={e=>setManual(e.target.value)}
-          placeholder="หรือกรอกเลขซีเรียลซิมเอง..." onKeyDown={e=>e.key==="Enter"&&go()}/>
+          placeholder="สแกนบาร์โค้ดหรือกรอกเลขซีเรียลซิม..." onKeyDown={e=>e.key==="Enter"&&go()}/>
         <button style={S.btnP} onClick={go}>เพิ่ม ➕</button>
       </div>
     </div>
@@ -651,7 +648,7 @@ function SimList({ sims, onDelete }) {
 }
 
 // ===== QR MAIN (รวม 3 สถานะ: รอพิมพ์, ยังไม่พิมพ์, พิมพ์แล้ว) =====
-function QRMain({ sims, onPreview, bot, chat, onMarkPrinted, onUnmarkPrinted }) {
+function QRMain({ sims, onPreview, bot, chat, onMarkPrinted, onUnmarkPrinted, onDeleteSim }) {
   const [subTab, setSubTab] = useState("waiting"); // waiting=รอพิมพ์, new=ยังไม่พิมพ์, done=พิมพ์แล้ว
   const [sel, setSel] = useState([]);
   const [q, setQ] = useState("");
@@ -804,7 +801,10 @@ function QRMain({ sims, onPreview, bot, chat, onMarkPrinted, onUnmarkPrinted }) 
             <div style={{color:"#64748b",fontSize:9,marginTop:2,lineHeight:1.4}}>สแกน QR Code เพื่อรับบาร์โค้ดซิมและทำการลงทะเบียนซิมที่นี่</div>
             {subTab==="waiting" && <div style={{marginTop:4,fontSize:9,color:"#fbbf24",fontWeight:700}}>🕐 รอพิมพ์</div>}
             {subTab==="done" && <div style={{marginTop:4,fontSize:9,color:"#6ee7b7",fontWeight:700}}>✅ พิมพ์แล้ว</div>}
-            <button onClick={e=>{e.stopPropagation();onPreview(s);}} style={{...S.btnS,width:"100%",marginTop:7,fontSize:10,padding:"4px 0"}}>👁 ทดสอบ</button>
+            <div style={{display:"flex",gap:5,marginTop:7}}>
+              <button onClick={e=>{e.stopPropagation();onPreview(s);}} style={{...S.btnS,flex:1,fontSize:10,padding:"4px 0"}}>👁 ทดสอบ</button>
+              <button onClick={e=>{e.stopPropagation();onDeleteSim(s.serial);}} style={{...S.btnD,fontSize:10,padding:"4px 8px"}} title="ลบซิมนี้">🗑</button>
+            </div>
           </div>
         ))}
       </div>
@@ -1074,7 +1074,7 @@ function App() {
             )}
           </>
         )}
-        {tab==="qr"&&<QRMain sims={sims} onPreview={s=>setModal(s)} bot={botToken} chat={chatId} onMarkPrinted={markPrinted} onUnmarkPrinted={unmarkPrinted}/>}
+        {tab==="qr"&&<QRMain sims={sims} onPreview={s=>setModal(s)} bot={botToken} chat={chatId} onMarkPrinted={markPrinted} onUnmarkPrinted={unmarkPrinted} onDeleteSim={delSim}/>}
         {tab==="pending"&&<PendingTab sims={sims} onPreview={s=>setModal(s)} onMarkScanned={markScanned}/>}
         {tab==="scanned"&&<ScannedTab sims={sims}/>}
         {tab==="list"&&<SimList sims={sims} onDelete={delSim}/>}
