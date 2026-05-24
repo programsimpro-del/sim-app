@@ -570,8 +570,7 @@ function SimList({ sims, onDelete }) {
   const csv=()=>{
     const h=["เลขซีเรียล","เลขติดตาม","สถานะ","วันที่เพิ่ม","วันที่สแกน"];
     const r=fl.map(s=>[s.serial,s.trackingNo,s.scannedByCustomer?"✓":"-",fmtDate(s.createdAt),s.scannedAt?fmtDate(s.scannedAt)+" "+fmtTime(s.scannedAt):"-"]);
-    const blob=new Blob(["﻿"+[h,...r].map(x=>x.join(",")).join("
-")],{type:"text/csv;charset=utf-8"});
+    const blob=new Blob(["﻿"+[h,...r].map(x=>x.join(",")).join("\n")],{type:"text/csv;charset=utf-8"});
     Object.assign(document.createElement("a"),{href:URL.createObjectURL(blob),download:`sims_${todayKey()}.csv`}).click();
   };
   return (
