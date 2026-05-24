@@ -650,19 +650,42 @@ function SimList({ sims, onDelete }) {
   );
 }
 
-// ===== QR NOT PRINTED TAB =====
-function QRNotPrinted({ sims, onPreview, bot, chat, onMarkPrinted }) {
+// ===== QR MAIN (รวม 3 สถานะ: รอพิมพ์, ยังไม่พิมพ์, พิมพ์แล้ว) =====
+function QRMain({ sims, onPreview, bot, chat, onMarkPrinted, onUnmarkPrinted }) {
+  const [subTab, setSubTab] = useState("waiting"); // waiting=รอพิมพ์, new=ยังไม่พิมพ์, done=พิมพ์แล้ว
   const [sel, setSel] = useState([]);
   const [q, setQ] = useState("");
   const [printing, setPrinting] = useState(false);
-  const fl = sims.filter(s => !s.printed && (s.serial.toLowerCase().includes(q.toLowerCase()) || s.trackingNo.includes(q)));
+
+  // รอพิมพ์ = ที่เลือกค้างไว้ (ยังไม่ได้พิมพ์จริง) — ใช้ localStorage เก็บ
+  const [waiting, setWaiting] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("sim_waiting") || "[]"); } catch(e) { return []; }
+  });
+  const saveWaiting = (arr) => { localStorage.setItem("sim_waiting", JSON.stringify(arr)); setWaiting(arr); };
+
+  const notPrinted = sims.filter(s => !s.printed && !waiting.includes(s.serial));
+  const waitingList = sims.filter(s => waiting.includes(s.serial));
+  const printed = sims.filter(s => s.printed);
+
+  const fl = (list) => list.filter(s => s.serial.toLowerCase().includes(q.toLowerCase()) || s.trackingNo.includes(q));
   const tog = (serial) => setSel(prev => prev.includes(serial) ? prev.filter(s=>s!==serial) : [...prev,serial]);
 
+  // ย้ายที่เลือกไป "รอพิมพ์"
+  const moveToWaiting = () => {
+    const newWaiting = [...new Set([...waiting, ...sel])];
+    saveWaiting(newWaiting);
+    setSel([]);
+  };
+
+  // พิมพ์จริง — ย้ายจาก "รอพิมพ์" → "พิมพ์แล้ว"
   const doPrint = async () => {
-    const picked = sims.filter(s=>sel.includes(s.serial));
+    const toPrint = subTab === "waiting" ? waitingList.filter(s => sel.includes(s.serial)) : sims.filter(s => sel.includes(s.serial));
+    if (toPrint.length === 0) return;
     setPrinting(true);
+
+    // สร้าง QR dataURLs
     const qrDataUrls = {};
-    for (const s of picked) {
+    for (const s of toPrint) {
       const url = makeQRUrl(s.serial, s.trackingNo, bot, chat);
       await new Promise(resolve => {
         const div = document.createElement("div");
@@ -673,87 +696,115 @@ function QRNotPrinted({ sims, onPreview, bot, chat, onMarkPrinted }) {
           setTimeout(() => {
             const cv = div.querySelector("canvas");
             if(cv) qrDataUrls[s.serial] = cv.toDataURL();
-            document.body.removeChild(div);
+            try{document.body.removeChild(div);}catch(e2){}
             resolve();
           }, 400);
         } catch(e) { try{document.body.removeChild(div);}catch(e2){} resolve(); }
       });
     }
-    const cards = picked.map(s => {
-      const d = qrDataUrls[s.serial]||"";
+
+    const cards = toPrint.map(s => {
+      const d = qrDataUrls[s.serial] || "";
       return `<div class="card">${d?`<img src="${d}" width="160" height="160"/>`:`<div style="width:160px;height:160px;background:#eee;display:flex;align-items:center;justify-content:center">QR</div>`}<div class="trk">ซิมหมายเลข: ${s.trackingNo}</div><div class="lbl">สแกน QR Code เพื่อรับบาร์โค้ดซิมและทำการลงทะเบียนซิมที่นี่</div></div>`;
     }).join("");
-    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>พิมพ์ QR</title><style>*{box-sizing:border-box}body{font-family:'Sarabun',sans-serif;background:#fff;margin:0;padding:20px}.grid{display:flex;flex-wrap:wrap;gap:14px}.card{border:1px solid #ccc;border-radius:10px;padding:12px;width:184px;text-align:center;page-break-inside:avoid}.trk{font-size:13px;font-weight:700;color:#4f46e5;margin-top:7px}.lbl{font-size:10px;color:#444;margin-top:5px;line-height:1.5}@media print{.np{display:none!important}@page{margin:8mm}}</style></head><body><div class="np" style="margin-bottom:16px"><button onclick="window.print()" style="padding:12px 28px;font-size:16px;cursor:pointer;background:#4f46e5;color:white;border:none;border-radius:8px;font-weight:700">🖨️ พิมพ์ / เลือกเครื่องปริ้น</button></div><div class="grid">${cards}</div><script>window.onload=function(){setTimeout(function(){window.print();},600)};<\/script></body></html>`;
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>พิมพ์ QR</title><style>*{box-sizing:border-box}body{font-family:'Sarabun',sans-serif;background:#fff;margin:0;padding:20px}.grid{display:flex;flex-wrap:wrap;gap:14px}.card{border:1px solid #ccc;border-radius:10px;padding:12px;width:184px;text-align:center;page-break-inside:avoid}.trk{font-size:13px;font-weight:700;color:#4f46e5;margin-top:7px}.lbl{font-size:10px;color:#444;margin-top:5px;line-height:1.5}@media print{.np{display:none!important}@page{margin:8mm}}</style></head><body><div class="np" style="margin-bottom:16px"><button onclick="window.print()" style="padding:12px 28px;font-size:16px;cursor:pointer;background:#4f46e5;color:white;border:none;border-radius:8px;font-weight:700">🖨️ พิมพ์ QR Code</button></div><div class="grid">${cards}</div><script>window.onload=function(){setTimeout(function(){window.print();},600)};<\/script></body></html>`;
     const blob = new Blob([html],{type:"text/html;charset=utf-8"});
     const a = Object.assign(document.createElement("a"),{href:URL.createObjectURL(blob),target:"_blank",rel:"noopener"});
     document.body.appendChild(a); a.click();
     setTimeout(()=>{document.body.removeChild(a);},1000);
-    setPrinting(false);
-    // มาร์คว่าพิมพ์แล้ว
-    onMarkPrinted(sel);
-    setSel([]);
+
+    // มาร์คว่าพิมพ์แล้ว + ลบออกจาก waiting
+    const printedSerials = toPrint.map(s=>s.serial);
+    onMarkPrinted(printedSerials);
+    saveWaiting(waiting.filter(s=>!printedSerials.includes(s)));
+    setSel([]); setPrinting(false);
   };
+
+  const subTabs = [
+    { id:"waiting", label:`🕐 รอพิมพ์ (${waitingList.length})`, color:"#fbbf24" },
+    { id:"new",     label:`🖨️ ยังไม่พิมพ์ (${notPrinted.length})`, color:"#a5b4fc" },
+    { id:"done",    label:`✅ พิมพ์แล้ว (${printed.length})`, color:"#6ee7b7" },
+  ];
+
+  const currentList = subTab==="waiting" ? waitingList : subTab==="new" ? notPrinted : printed;
 
   return (
     <div style={S.card}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
-        <h3 style={{...S.sectionTitle,margin:0}}>🖨️ ยังไม่พิมพ์ QR ({fl.length})</h3>
-        <span style={{background:"rgba(251,191,36,0.15)",border:"1px solid rgba(251,191,36,0.3)",color:"#fbbf24",borderRadius:99,padding:"3px 12px",fontSize:12,fontWeight:700}}>ยังไม่พิมพ์</span>
+      <h3 style={{...S.sectionTitle, marginBottom:12}}>🔲 QR Code Serial Sim</h3>
+
+      {/* Sub Tabs */}
+      <div style={{display:"flex",gap:6,marginBottom:14,borderBottom:"1px solid rgba(255,255,255,0.08)",paddingBottom:10}}>
+        {subTabs.map(st=>(
+          <button key={st.id} onClick={()=>{setSubTab(st.id);setSel([]);}}
+            style={{flex:1,padding:"8px 4px",border:"none",borderRadius:9,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",
+              background:subTab===st.id?"rgba(255,255,255,0.12)":"rgba(255,255,255,0.04)",
+              color:subTab===st.id?st.color:"#8b8fa8",
+              borderBottom:subTab===st.id?`2px solid ${st.color}`:"2px solid transparent",
+            }}>
+            {st.label}
+          </button>
+        ))}
       </div>
-      <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
+
+      {/* ค้นหา + ปุ่มเลือก */}
+      <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap"}}>
         <input style={{...S.input,flex:1,minWidth:140}} value={q} onChange={e=>setQ(e.target.value)} placeholder="🔍 ค้นหา..."/>
-        <button style={S.btnS} onClick={()=>setSel(fl.map(s=>s.serial))}>เลือกทั้งหมด ({fl.length})</button>
+        <button style={S.btnS} onClick={()=>setSel(fl(currentList).map(s=>s.serial))}>เลือกทั้งหมด ({fl(currentList).length})</button>
         <button style={S.btnS} onClick={()=>setSel([])}>ยกเลิก</button>
-        <button style={{...S.btnP,opacity:sel.length===0||printing?0.5:1}} onClick={()=>sel.length>0&&!printing&&doPrint()} disabled={sel.length===0||printing}>
-          {printing?"⏳ กำลังสร้าง...":"🖨️ พิมพ์ QR ("+sel.length+")"}
-        </button>
       </div>
-      {fl.length===0&&<div style={{textAlign:"center",padding:40,color:"#6ee7b7"}}><div style={{fontSize:40,marginBottom:8}}>🎉</div><div style={{fontWeight:700}}>พิมพ์ QR ครบทุกซิมแล้ว!</div></div>}
+
+      {/* Action Buttons ตามแต่ละ sub tab */}
+      {sel.length > 0 && (
+        <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
+          {subTab==="new" && (
+            <button onClick={moveToWaiting}
+              style={{...S.btnS,flex:1,background:"rgba(251,191,36,0.2)",color:"#fbbf24",border:"1px solid rgba(251,191,36,0.4)",fontWeight:700}}>
+              🕐 ย้ายไป รอพิมพ์ ({sel.length})
+            </button>
+          )}
+          {(subTab==="waiting" || subTab==="new") && (
+            <button onClick={doPrint} disabled={printing}
+              style={{...S.btnP,flex:1,opacity:printing?0.6:1}}>
+              {printing?"⏳ กำลังสร้าง...":"🖨️ พิมพ์ QR จริง ("+sel.length+")"}
+            </button>
+          )}
+          {subTab==="done" && (
+            <button onClick={()=>{sel.forEach(s=>onUnmarkPrinted(s));setSel([]);}}
+              style={{...S.btnS,flex:1,color:"#f59e0b",border:"1px solid rgba(245,158,11,0.4)"}}>
+              ↩️ ยกเลิกพิมพ์ ({sel.length})
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* รายการ */}
+      {fl(currentList).length===0 && (
+        <div style={{textAlign:"center",padding:36,color:"#8b8fa8"}}>
+          <div style={{fontSize:36,marginBottom:8}}>
+            {subTab==="waiting"?"🕐":subTab==="new"?"🎉":"📭"}
+          </div>
+          <div>{subTab==="waiting"?"ยังไม่มีซิมในคิวรอพิมพ์":subTab==="new"?"ยังไม่พิมพ์ QR ครบทุกซิมแล้ว":"ยังไม่มีซิมที่พิมพ์ QR แล้ว"}</div>
+        </div>
+      )}
+
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(145px,1fr))",gap:10}}>
-        {fl.map(s=>(
-          <div key={s.serial} onClick={()=>tog(s.serial)} style={{background:sel.includes(s.serial)?"rgba(79,70,229,0.2)":"rgba(255,255,255,0.04)",border:`2px solid ${sel.includes(s.serial)?"#4f46e5":"rgba(255,255,255,0.08)"}`,borderRadius:12,padding:10,textAlign:"center",cursor:"pointer"}}>
+        {fl(currentList).map(s=>(
+          <div key={s.serial} onClick={()=>tog(s.serial)}
+            style={{background:sel.includes(s.serial)?"rgba(79,70,229,0.2)":"rgba(255,255,255,0.04)",
+              border:`2px solid ${sel.includes(s.serial)?"#4f46e5":"rgba(255,255,255,0.08)"}`,
+              borderRadius:12,padding:10,textAlign:"center",cursor:"pointer",position:"relative"}}>
+            {/* เครื่องหมายติก */}
+            {sel.includes(s.serial) && (
+              <div style={{position:"absolute",top:6,right:6,width:18,height:18,background:"#4f46e5",borderRadius:99,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,color:"white",fontWeight:700}}>✓</div>
+            )}
             <div style={{background:"#fff",borderRadius:8,padding:5,display:"inline-block",marginBottom:5}}>
               <QR text={makeQRUrl(s.serial,s.trackingNo,bot,chat)} size={110}/>
             </div>
             <div style={{color:"#4f46e5",fontSize:11,fontWeight:700,marginTop:4}}>ซิมหมายเลข: {s.trackingNo}</div>
             <div style={{color:"#64748b",fontSize:9,marginTop:2,lineHeight:1.4}}>สแกน QR Code เพื่อรับบาร์โค้ดซิมและทำการลงทะเบียนซิมที่นี่</div>
+            {subTab==="waiting" && <div style={{marginTop:4,fontSize:9,color:"#fbbf24",fontWeight:700}}>🕐 รอพิมพ์</div>}
+            {subTab==="done" && <div style={{marginTop:4,fontSize:9,color:"#6ee7b7",fontWeight:700}}>✅ พิมพ์แล้ว</div>}
             <button onClick={e=>{e.stopPropagation();onPreview(s);}} style={{...S.btnS,width:"100%",marginTop:7,fontSize:10,padding:"4px 0"}}>👁 ทดสอบ</button>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ===== QR PRINTED TAB =====
-function QRPrinted({ sims, onPreview, bot, chat, onUnmarkPrinted }) {
-  const [q, setQ] = useState("");
-  const fl = sims.filter(s => s.printed && (s.serial.toLowerCase().includes(q.toLowerCase()) || s.trackingNo.includes(q)));
-  return (
-    <div style={S.card}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
-        <h3 style={{...S.sectionTitle,margin:0}}>✅ พิมพ์ QR แล้ว ({fl.length})</h3>
-        <span style={{background:"rgba(16,185,129,0.15)",border:"1px solid rgba(16,185,129,0.3)",color:"#6ee7b7",borderRadius:99,padding:"3px 12px",fontSize:12,fontWeight:700}}>พิมพ์แล้ว</span>
-      </div>
-      <input style={{...S.input,marginBottom:12}} value={q} onChange={e=>setQ(e.target.value)} placeholder="🔍 ค้นหา..."/>
-      {fl.length===0&&<div style={{textAlign:"center",padding:40,color:"#8b8fa8"}}><div style={{fontSize:40,marginBottom:8}}>📭</div><div>ยังไม่มีซิมที่พิมพ์ QR แล้ว</div></div>}
-      <div style={{display:"flex",flexDirection:"column",gap:8}}>
-        {fl.map(s=>(
-          <div key={s.serial} style={{background:"rgba(16,185,129,0.05)",border:"1px solid rgba(16,185,129,0.15)",borderRadius:10,padding:"12px 14px"}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
-              <div>
-                <div style={{color:"white",fontFamily:"monospace",fontSize:14,fontWeight:700}}>{s.serial}</div>
-                <div style={{color:"#a78bfa",fontSize:12,marginTop:2}}>ซิมหมายเลข: {s.trackingNo}</div>
-                <div style={{color:"#6ee7b7",fontSize:11,marginTop:2}}>
-                  {s.scannedByCustomer ? "✅ ลูกค้าลงทะเบียนแล้ว" : "⏳ ยังไม่มีลูกค้าสแกน"}
-                </div>
-              </div>
-              <span style={{background:"rgba(16,185,129,0.2)",color:"#6ee7b7",borderRadius:99,padding:"2px 10px",fontSize:11,fontWeight:700,whiteSpace:"nowrap"}}>✅ พิมพ์แล้ว</span>
-            </div>
-            <div style={{display:"flex",gap:6}}>
-              <button onClick={()=>onPreview(s)} style={{...S.btnS,flex:1,fontSize:11,padding:"5px 0"}}>👁 ทดสอบ QR</button>
-              <button onClick={()=>onUnmarkPrinted(s.serial)} style={{...S.btnD,fontSize:11,padding:"5px 10px"}}>↩️ ยังไม่พิมพ์</button>
-            </div>
           </div>
         ))}
       </div>
@@ -960,18 +1011,14 @@ function App() {
   const pendingCount = sims.filter(s=>!s.scannedByCustomer).length;
   const scannedCount = sims.filter(s=>s.scannedByCustomer).length;
 
-  const notPrintedCount = sims.filter(s=>!s.printed).length;
-  const printedCount = sims.filter(s=>s.printed).length;
-
   const tabs = [
-    {id:"scanner",label:"📷 ยิงซิม"},
-    {id:"qr_new",label:`🖨️ ยังไม่พิมพ์ QR (${notPrintedCount})`},
-    {id:"qr_done",label:`✅ พิมพ์ QR แล้ว (${printedCount})`},
-    {id:"pending",label:`⏳ รอสแกน (${pendingCount})`},
-    {id:"scanned",label:`📋 ลงทะเบียนแล้ว (${scannedCount})`},
-    {id:"list",label:"📋 รายการทั้งหมด"},
-    {id:"summary",label:"📊 สรุป"},
-    {id:"settings",label:"⚙️ ตั้งค่า"},
+    {id:"scanner",  label:"📷 ยิงซิม"},
+    {id:"qr",       label:`🔲 QR Code Serial Sim (${sims.length})`},
+    {id:"pending",  label:`⏳ รอสแกน (${pendingCount})`},
+    {id:"scanned",  label:`📋 ลงทะเบียนแล้ว (${scannedCount})`},
+    {id:"list",     label:"📋 รายการทั้งหมด"},
+    {id:"summary",  label:"📊 สรุป"},
+    {id:"settings", label:"⚙️ ตั้งค่า"},
   ];
 
   if (loading) return (
@@ -1027,8 +1074,7 @@ function App() {
             )}
           </>
         )}
-        {tab==="qr_new"&&<QRNotPrinted sims={sims} onPreview={s=>setModal(s)} bot={botToken} chat={chatId} onMarkPrinted={markPrinted}/>}
-        {tab==="qr_done"&&<QRPrinted sims={sims} onPreview={s=>setModal(s)} bot={botToken} chat={chatId} onUnmarkPrinted={unmarkPrinted}/>}
+        {tab==="qr"&&<QRMain sims={sims} onPreview={s=>setModal(s)} bot={botToken} chat={chatId} onMarkPrinted={markPrinted} onUnmarkPrinted={unmarkPrinted}/>}
         {tab==="pending"&&<PendingTab sims={sims} onPreview={s=>setModal(s)} onMarkScanned={markScanned}/>}
         {tab==="scanned"&&<ScannedTab sims={sims}/>}
         {tab==="list"&&<SimList sims={sims} onDelete={delSim}/>}
