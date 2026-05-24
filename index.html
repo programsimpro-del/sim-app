@@ -14,6 +14,7 @@
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://unpkg.com/@zxing/library@latest/umd/index.min.js"></script>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { background: #0a0a1a; color: white; font-family: 'Noto Sans Thai', 'Sarabun', sans-serif; }
@@ -389,21 +390,128 @@ function Settings({ botToken, chatId, setBotToken, setChatId, onSave }) {
 function Scanner({ onScan }) {
   const [manual, setManual] = useState("");
   const [cam, setCam] = useState(false);
-  const vRef = useRef(null), stRef = useRef(null);
-  const stopCam = useCallback(()=>{if(stRef.current){stRef.current.getTracks().forEach(t=>t.stop());stRef.current=null;}},[]);
-  useEffect(()=>{
-    if(cam) navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}}).then(st=>{stRef.current=st;if(vRef.current){vRef.current.srcObject=st;vRef.current.play();}}).catch(e=>{alert(e.message);setCam(false);});
-    else stopCam();
-    return stopCam;
-  },[cam,stopCam]);
-  const go=()=>{if(manual.trim()){onScan(manual.trim());setManual("");}};
+  const [scanning, setScanning] = useState(false);
+  const [lastScan, setLastScan] = useState("");
+  const [scanMsg, setScanMsg] = useState("");
+  const vRef = useRef(null);
+  const readerRef = useRef(null);
+  const cooldownRef = useRef(false);
+
+  const stopCam = useCallback(() => {
+    if (readerRef.current) {
+      try { readerRef.current.reset(); } catch(e) {}
+      readerRef.current = null;
+    }
+    setScanning(false);
+    setScanMsg("");
+  }, []);
+
+  useEffect(() => {
+    if (!cam) { stopCam(); return; }
+
+    const startReader = () => {
+      if (!window.ZXing || !vRef.current) return;
+      try {
+        const hints = new Map();
+        const formats = [
+          window.ZXing.BarcodeFormat.CODE_128,
+          window.ZXing.BarcodeFormat.CODE_39,
+          window.ZXing.BarcodeFormat.EAN_13,
+          window.ZXing.BarcodeFormat.EAN_8,
+          window.ZXing.BarcodeFormat.QR_CODE,
+        ];
+        hints.set(window.ZXing.DecodeHintType.POSSIBLE_FORMATS, formats);
+        hints.set(window.ZXing.DecodeHintType.TRY_HARDER, true);
+
+        const reader = new window.ZXing.BrowserMultiFormatReader(hints);
+        readerRef.current = reader;
+        setScanning(true);
+        setScanMsg("🔍 ชี้กล้องไปที่บาร์โค้ดซิม...");
+
+        reader.decodeFromVideoDevice(null, vRef.current, (result, err) => {
+          if (result && !cooldownRef.current) {
+            const text = result.getText();
+            if (text && text.length >= 8) {
+              cooldownRef.current = true;
+              setLastScan(text);
+              setScanMsg("✅ สแกนได้: " + text);
+              // เพิ่มซิมอัตโนมัติ
+              onScan(text);
+              // cooldown 3 วินาทีก่อนสแกนซิมถัดไป
+              setTimeout(() => {
+                cooldownRef.current = false;
+                setScanMsg("🔍 ชี้กล้องไปที่บาร์โค้ดซิมถัดไป...");
+              }, 3000);
+            }
+          }
+        });
+      } catch(e) {
+        setScanMsg("❌ ไม่สามารถเริ่มสแกนได้: " + e.message);
+      }
+    };
+
+    if (window.ZXing) {
+      startReader();
+    } else {
+      // โหลด ZXing ถ้ายังไม่มี
+      const sc = document.createElement("script");
+      sc.src = "https://unpkg.com/@zxing/library@latest/umd/index.min.js";
+      sc.onload = startReader;
+      sc.onerror = () => setScanMsg("❌ โหลด ZXing ไม่ได้ กรุณากรอกเลขเอง");
+      document.head.appendChild(sc);
+    }
+
+    return () => stopCam();
+  }, [cam, stopCam]);
+
+  const go = () => { if(manual.trim()) { onScan(manual.trim()); setManual(""); } };
+
   return (
     <div style={S.card}>
       <h3 style={S.sectionTitle}>📷 ยิงเลขซีเรียลซิม</h3>
-      <button style={cam?S.btnDO:S.btnS} onClick={()=>setCam(v=>!v)}>{cam?"🔴 ปิดกล้อง":"📷 เปิดกล้อง"}</button>
-      {cam&&<video ref={vRef} style={{width:"100%",maxWidth:400,borderRadius:12,border:"2px solid #4f46e5",display:"block",marginTop:12}} playsInline muted/>}
+
+      <button style={cam ? S.btnDO : S.btnS} onClick={() => setCam(v => !v)}>
+        {cam ? "🔴 ปิดกล้อง" : "📷 เปิดกล้องสแกนบาร์โค้ด"}
+      </button>
+
+      {cam && (
+        <div style={{marginTop:12}}>
+          {/* กรอบ viewfinder */}
+          <div style={{position:"relative",width:"100%",maxWidth:420}}>
+            <video ref={vRef} style={{width:"100%",borderRadius:12,border:"2px solid #4f46e5",display:"block"}} playsInline muted/>
+            {/* เส้นสแกนตรงกลาง */}
+            <div style={{position:"absolute",top:"50%",left:"8%",right:"8%",height:2,background:"rgba(99,102,241,0.8)",transform:"translateY(-50%)",boxShadow:"0 0 8px rgba(99,102,241,0.8)"}}/>
+            {/* มุมกรอบ */}
+            {[{top:8,left:8,borderTop:"3px solid #a78bfa",borderLeft:"3px solid #a78bfa"},
+              {top:8,right:8,borderTop:"3px solid #a78bfa",borderRight:"3px solid #a78bfa"},
+              {bottom:8,left:8,borderBottom:"3px solid #a78bfa",borderLeft:"3px solid #a78bfa"},
+              {bottom:8,right:8,borderBottom:"3px solid #a78bfa",borderRight:"3px solid #a78bfa"}
+            ].map((style,i) => (
+              <div key={i} style={{position:"absolute",width:20,height:20,...style}}/>
+            ))}
+          </div>
+
+          {/* สถานะสแกน */}
+          <div style={{marginTop:8,padding:"8px 14px",borderRadius:10,textAlign:"center",fontSize:13,fontWeight:600,
+            background: scanMsg.startsWith("✅") ? "rgba(5,150,105,0.15)" : "rgba(79,70,229,0.12)",
+            border: `1px solid ${scanMsg.startsWith("✅") ? "rgba(5,150,105,0.4)" : "rgba(99,102,241,0.3)"}`,
+            color: scanMsg.startsWith("✅") ? "#6ee7b7" : "#a5b4fc"
+          }}>
+            {scanMsg || "กำลังเตรียมกล้อง..."}
+          </div>
+
+          {lastScan && (
+            <div style={{marginTop:8,padding:"8px 14px",background:"rgba(167,139,250,0.1)",border:"1px solid rgba(167,139,250,0.3)",borderRadius:10,fontSize:12,color:"#c4b5fd"}}>
+              สแกนล่าสุด: <strong style={{color:"white",fontFamily:"monospace"}}>{lastScan}</strong>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* กรอกเลขเอง */}
       <div style={{display:"flex",gap:8,marginTop:12}}>
-        <input style={S.input} value={manual} onChange={e=>setManual(e.target.value)} placeholder="กรอกหรือสแกนเลขซีเรียลซิม..." onKeyDown={e=>e.key==="Enter"&&go()}/>
+        <input style={S.input} value={manual} onChange={e=>setManual(e.target.value)}
+          placeholder="หรือกรอกเลขซีเรียลซิมเอง..." onKeyDown={e=>e.key==="Enter"&&go()}/>
         <button style={S.btnP} onClick={go}>เพิ่ม ➕</button>
       </div>
     </div>
@@ -413,12 +521,57 @@ function Scanner({ onScan }) {
 // ===== SIM LIST =====
 function SimList({ sims, onDelete }) {
   const [q,setQ]=useState(""); const [pg,setPg]=useState(1); const pp=15;
+  const [scanCam, setScanCam] = useState(false);
+  const [scanMsg, setScanMsg] = useState("");
+  const scanRef = useRef(null);
+  const scanReaderRef = useRef(null);
+
   const fl=sims.filter(s=>s.serial.toLowerCase().includes(q.toLowerCase())||s.trackingNo.includes(q));
   const pd=fl.slice((pg-1)*pp,pg*pp), pages=Math.ceil(fl.length/pp);
+
+  // สแกนบาร์โค้ดเพื่อค้นหา
+  useEffect(() => {
+    if (!scanCam) {
+      if (scanReaderRef.current) { try{scanReaderRef.current.reset();}catch(e){} scanReaderRef.current=null; }
+      setScanMsg(""); return;
+    }
+    const startScan = () => {
+      if (!window.ZXing || !scanRef.current) return;
+      const hints = new Map();
+      hints.set(window.ZXing.DecodeHintType.POSSIBLE_FORMATS, [
+        window.ZXing.BarcodeFormat.CODE_128, window.ZXing.BarcodeFormat.CODE_39,
+        window.ZXing.BarcodeFormat.EAN_13, window.ZXing.BarcodeFormat.EAN_8,
+      ]);
+      hints.set(window.ZXing.DecodeHintType.TRY_HARDER, true);
+      const reader = new window.ZXing.BrowserMultiFormatReader(hints);
+      scanReaderRef.current = reader;
+      setScanMsg("🔍 ชี้กล้องไปที่บาร์โค้ดซิม...");
+      reader.decodeFromVideoDevice(null, scanRef.current, (result, err) => {
+        if (result) {
+          const text = result.getText();
+          if (text && text.length >= 8) {
+            setQ(text); setPg(1);
+            setScanMsg("✅ พบ: " + text);
+            setScanCam(false);
+          }
+        }
+      });
+    };
+    if (window.ZXing) startScan();
+    else {
+      const sc = document.createElement("script");
+      sc.src = "https://unpkg.com/@zxing/library@latest/umd/index.min.js";
+      sc.onload = startScan;
+      document.head.appendChild(sc);
+    }
+    return () => { if(scanReaderRef.current){try{scanReaderRef.current.reset();}catch(e){} scanReaderRef.current=null;} };
+  }, [scanCam]);
+
   const csv=()=>{
     const h=["เลขซีเรียล","เลขติดตาม","สถานะ","วันที่เพิ่ม","วันที่สแกน"];
     const r=fl.map(s=>[s.serial,s.trackingNo,s.scannedByCustomer?"✓":"-",fmtDate(s.createdAt),s.scannedAt?fmtDate(s.scannedAt)+" "+fmtTime(s.scannedAt):"-"]);
-    const blob=new Blob(["\uFEFF"+[h,...r].map(x=>x.join(",")).join("\n")],{type:"text/csv;charset=utf-8"});
+    const blob=new Blob(["﻿"+[h,...r].map(x=>x.join(",")).join("
+")],{type:"text/csv;charset=utf-8"});
     Object.assign(document.createElement("a"),{href:URL.createObjectURL(blob),download:`sims_${todayKey()}.csv`}).click();
   };
   return (
@@ -427,7 +580,52 @@ function SimList({ sims, onDelete }) {
         <h3 style={{...S.sectionTitle,margin:0}}>📋 รายการซิมทั้งหมด ({fl.length})</h3>
         <button style={S.btnG} onClick={csv}>📥 Export Excel</button>
       </div>
-      <input style={{...S.input,marginBottom:12}} value={q} onChange={e=>{setQ(e.target.value);setPg(1);}} placeholder="🔍 ค้นหา..."/>
+
+      {/* ช่องค้นหา + ปุ่มกล้อง */}
+      <div style={{display:"flex",gap:8,marginBottom:scanCam?8:12,alignItems:"center"}}>
+        <div style={{position:"relative",flex:1}}>
+          <input
+            style={{...S.input,paddingRight:44}}
+            value={q}
+            onChange={e=>{setQ(e.target.value);setPg(1);}}
+            placeholder="🔍 ค้นหาเลขซีเรียลหรือเลขติดตาม..."
+          />
+          {q && (
+            <button onClick={()=>{setQ("");setPg(1);setScanMsg("");}}
+              style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",color:"#8b8fa8",fontSize:16,cursor:"pointer",padding:"0 4px"}}>
+              ✕
+            </button>
+          )}
+        </div>
+        <button
+          onClick={()=>setScanCam(v=>!v)}
+          style={{...scanCam?S.btnDO:S.btnS, padding:"10px 14px", whiteSpace:"nowrap"}}
+          title="สแกนบาร์โค้ดเพื่อค้นหา"
+        >
+          {scanCam ? "🔴 ปิด" : "📷 สแกน"}
+        </button>
+      </div>
+
+      {/* กล้องสแกน */}
+      {scanCam && (
+        <div style={{marginBottom:12}}>
+          <div style={{position:"relative",width:"100%",maxWidth:420}}>
+            <video ref={scanRef} style={{width:"100%",borderRadius:12,border:"2px solid #4f46e5",display:"block"}} playsInline muted/>
+            <div style={{position:"absolute",top:"50%",left:"8%",right:"8%",height:2,background:"rgba(99,102,241,0.8)",transform:"translateY(-50%)",boxShadow:"0 0 8px rgba(99,102,241,0.8)"}}/>
+            {[{top:8,left:8,borderTop:"3px solid #a78bfa",borderLeft:"3px solid #a78bfa"},
+              {top:8,right:8,borderTop:"3px solid #a78bfa",borderRight:"3px solid #a78bfa"},
+              {bottom:8,left:8,borderBottom:"3px solid #a78bfa",borderLeft:"3px solid #a78bfa"},
+              {bottom:8,right:8,borderBottom:"3px solid #a78bfa",borderRight:"3px solid #a78bfa"}
+            ].map((st,i)=><div key={i} style={{position:"absolute",width:20,height:20,...st}}/>)}
+          </div>
+          <div style={{marginTop:8,padding:"8px 14px",borderRadius:10,textAlign:"center",fontSize:13,fontWeight:600,
+            background:scanMsg.startsWith("✅")?"rgba(5,150,105,0.15)":"rgba(79,70,229,0.12)",
+            border:`1px solid ${scanMsg.startsWith("✅")?"rgba(5,150,105,0.4)":"rgba(99,102,241,0.3)"}`,
+            color:scanMsg.startsWith("✅")?"#6ee7b7":"#a5b4fc"}}>
+            {scanMsg||"กำลังเตรียมกล้อง..."}
+          </div>
+        </div>
+      )}
       {pd.length===0&&<div style={{color:"#8b8fa8",textAlign:"center",padding:32}}>ยังไม่มีข้อมูล</div>}
       <div style={{overflowX:"auto"}}>
         <table style={S.table}>
@@ -449,6 +647,117 @@ function SimList({ sims, onDelete }) {
       {pages>1&&<div style={{display:"flex",gap:6,justifyContent:"center",marginTop:12,flexWrap:"wrap"}}>
         {Array.from({length:pages},(_,i)=>i+1).map(p=><button key={p} onClick={()=>setPg(p)} style={{...S.btnS,padding:"4px 10px",background:p===pg?"#4f46e5":undefined,color:p===pg?"white":undefined}}>{p}</button>)}
       </div>}
+    </div>
+  );
+}
+
+// ===== QR NOT PRINTED TAB =====
+function QRNotPrinted({ sims, onPreview, bot, chat, onMarkPrinted }) {
+  const [sel, setSel] = useState([]);
+  const [q, setQ] = useState("");
+  const [printing, setPrinting] = useState(false);
+  const fl = sims.filter(s => !s.printed && (s.serial.toLowerCase().includes(q.toLowerCase()) || s.trackingNo.includes(q)));
+  const tog = (serial) => setSel(prev => prev.includes(serial) ? prev.filter(s=>s!==serial) : [...prev,serial]);
+
+  const doPrint = async () => {
+    const picked = sims.filter(s=>sel.includes(s.serial));
+    setPrinting(true);
+    const qrDataUrls = {};
+    for (const s of picked) {
+      const url = makeQRUrl(s.serial, s.trackingNo, bot, chat);
+      await new Promise(resolve => {
+        const div = document.createElement("div");
+        div.style.cssText = "position:absolute;left:-9999px;top:-9999px";
+        document.body.appendChild(div);
+        try {
+          new QRCode(div, { text:url, width:160, height:160, colorDark:"#000", colorLight:"#fff", correctLevel:QRCode.CorrectLevel.M });
+          setTimeout(() => {
+            const cv = div.querySelector("canvas");
+            if(cv) qrDataUrls[s.serial] = cv.toDataURL();
+            document.body.removeChild(div);
+            resolve();
+          }, 400);
+        } catch(e) { try{document.body.removeChild(div);}catch(e2){} resolve(); }
+      });
+    }
+    const cards = picked.map(s => {
+      const d = qrDataUrls[s.serial]||"";
+      return `<div class="card">${d?`<img src="${d}" width="160" height="160"/>`:`<div style="width:160px;height:160px;background:#eee;display:flex;align-items:center;justify-content:center">QR</div>`}<div class="trk">ซิมหมายเลข: ${s.trackingNo}</div><div class="lbl">สแกน QR Code เพื่อรับบาร์โค้ดซิมและทำการลงทะเบียนซิมที่นี่</div></div>`;
+    }).join("");
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>พิมพ์ QR</title><style>*{box-sizing:border-box}body{font-family:'Sarabun',sans-serif;background:#fff;margin:0;padding:20px}.grid{display:flex;flex-wrap:wrap;gap:14px}.card{border:1px solid #ccc;border-radius:10px;padding:12px;width:184px;text-align:center;page-break-inside:avoid}.trk{font-size:13px;font-weight:700;color:#4f46e5;margin-top:7px}.lbl{font-size:10px;color:#444;margin-top:5px;line-height:1.5}@media print{.np{display:none!important}@page{margin:8mm}}</style></head><body><div class="np" style="margin-bottom:16px"><button onclick="window.print()" style="padding:12px 28px;font-size:16px;cursor:pointer;background:#4f46e5;color:white;border:none;border-radius:8px;font-weight:700">🖨️ พิมพ์ / เลือกเครื่องปริ้น</button></div><div class="grid">${cards}</div><script>window.onload=function(){setTimeout(function(){window.print();},600)};<\/script></body></html>`;
+    const blob = new Blob([html],{type:"text/html;charset=utf-8"});
+    const a = Object.assign(document.createElement("a"),{href:URL.createObjectURL(blob),target:"_blank",rel:"noopener"});
+    document.body.appendChild(a); a.click();
+    setTimeout(()=>{document.body.removeChild(a);},1000);
+    setPrinting(false);
+    // มาร์คว่าพิมพ์แล้ว
+    onMarkPrinted(sel);
+    setSel([]);
+  };
+
+  return (
+    <div style={S.card}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
+        <h3 style={{...S.sectionTitle,margin:0}}>🖨️ ยังไม่พิมพ์ QR ({fl.length})</h3>
+        <span style={{background:"rgba(251,191,36,0.15)",border:"1px solid rgba(251,191,36,0.3)",color:"#fbbf24",borderRadius:99,padding:"3px 12px",fontSize:12,fontWeight:700}}>ยังไม่พิมพ์</span>
+      </div>
+      <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
+        <input style={{...S.input,flex:1,minWidth:140}} value={q} onChange={e=>setQ(e.target.value)} placeholder="🔍 ค้นหา..."/>
+        <button style={S.btnS} onClick={()=>setSel(fl.map(s=>s.serial))}>เลือกทั้งหมด ({fl.length})</button>
+        <button style={S.btnS} onClick={()=>setSel([])}>ยกเลิก</button>
+        <button style={{...S.btnP,opacity:sel.length===0||printing?0.5:1}} onClick={()=>sel.length>0&&!printing&&doPrint()} disabled={sel.length===0||printing}>
+          {printing?"⏳ กำลังสร้าง...":"🖨️ พิมพ์ QR ("+sel.length+")"}
+        </button>
+      </div>
+      {fl.length===0&&<div style={{textAlign:"center",padding:40,color:"#6ee7b7"}}><div style={{fontSize:40,marginBottom:8}}>🎉</div><div style={{fontWeight:700}}>พิมพ์ QR ครบทุกซิมแล้ว!</div></div>}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(145px,1fr))",gap:10}}>
+        {fl.map(s=>(
+          <div key={s.serial} onClick={()=>tog(s.serial)} style={{background:sel.includes(s.serial)?"rgba(79,70,229,0.2)":"rgba(255,255,255,0.04)",border:`2px solid ${sel.includes(s.serial)?"#4f46e5":"rgba(255,255,255,0.08)"}`,borderRadius:12,padding:10,textAlign:"center",cursor:"pointer"}}>
+            <div style={{background:"#fff",borderRadius:8,padding:5,display:"inline-block",marginBottom:5}}>
+              <QR text={makeQRUrl(s.serial,s.trackingNo,bot,chat)} size={110}/>
+            </div>
+            <div style={{color:"#4f46e5",fontSize:11,fontWeight:700,marginTop:4}}>ซิมหมายเลข: {s.trackingNo}</div>
+            <div style={{color:"#64748b",fontSize:9,marginTop:2,lineHeight:1.4}}>สแกน QR Code เพื่อรับบาร์โค้ดซิมและทำการลงทะเบียนซิมที่นี่</div>
+            <button onClick={e=>{e.stopPropagation();onPreview(s);}} style={{...S.btnS,width:"100%",marginTop:7,fontSize:10,padding:"4px 0"}}>👁 ทดสอบ</button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ===== QR PRINTED TAB =====
+function QRPrinted({ sims, onPreview, bot, chat, onUnmarkPrinted }) {
+  const [q, setQ] = useState("");
+  const fl = sims.filter(s => s.printed && (s.serial.toLowerCase().includes(q.toLowerCase()) || s.trackingNo.includes(q)));
+  return (
+    <div style={S.card}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
+        <h3 style={{...S.sectionTitle,margin:0}}>✅ พิมพ์ QR แล้ว ({fl.length})</h3>
+        <span style={{background:"rgba(16,185,129,0.15)",border:"1px solid rgba(16,185,129,0.3)",color:"#6ee7b7",borderRadius:99,padding:"3px 12px",fontSize:12,fontWeight:700}}>พิมพ์แล้ว</span>
+      </div>
+      <input style={{...S.input,marginBottom:12}} value={q} onChange={e=>setQ(e.target.value)} placeholder="🔍 ค้นหา..."/>
+      {fl.length===0&&<div style={{textAlign:"center",padding:40,color:"#8b8fa8"}}><div style={{fontSize:40,marginBottom:8}}>📭</div><div>ยังไม่มีซิมที่พิมพ์ QR แล้ว</div></div>}
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {fl.map(s=>(
+          <div key={s.serial} style={{background:"rgba(16,185,129,0.05)",border:"1px solid rgba(16,185,129,0.15)",borderRadius:10,padding:"12px 14px"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+              <div>
+                <div style={{color:"white",fontFamily:"monospace",fontSize:14,fontWeight:700}}>{s.serial}</div>
+                <div style={{color:"#a78bfa",fontSize:12,marginTop:2}}>ซิมหมายเลข: {s.trackingNo}</div>
+                <div style={{color:"#6ee7b7",fontSize:11,marginTop:2}}>
+                  {s.scannedByCustomer ? "✅ ลูกค้าลงทะเบียนแล้ว" : "⏳ ยังไม่มีลูกค้าสแกน"}
+                </div>
+              </div>
+              <span style={{background:"rgba(16,185,129,0.2)",color:"#6ee7b7",borderRadius:99,padding:"2px 10px",fontSize:11,fontWeight:700,whiteSpace:"nowrap"}}>✅ พิมพ์แล้ว</span>
+            </div>
+            <div style={{display:"flex",gap:6}}>
+              <button onClick={()=>onPreview(s)} style={{...S.btnS,flex:1,fontSize:11,padding:"5px 0"}}>👁 ทดสอบ QR</button>
+              <button onClick={()=>onUnmarkPrinted(s.serial)} style={{...S.btnD,fontSize:11,padding:"5px 10px"}}>↩️ ยังไม่พิมพ์</button>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -587,7 +896,7 @@ function App() {
   const addSim = (serial) => {
     if (sims.find(s=>s.serial===serial)) { toast3(`⚠️ ${serial} มีอยู่แล้ว`,"warn"); return; }
     const trackingNo = genTracking(new Set(sims.map(s=>s.trackingNo)));
-    const ns = {serial,trackingNo,scannedByCustomer:false,scannedAt:null,createdAt:Date.now()};
+    const ns = {serial,trackingNo,scannedByCustomer:false,scannedAt:null,createdAt:Date.now(),printed:false};
     setSims(prev => {
       const u = [ns, ...prev];
       // บันทึก localStorage ทันที
@@ -610,6 +919,29 @@ function App() {
     toast3("🗑️ ลบแล้ว","warn");
   };
 
+  // มาร์คว่าพิมพ์ QR แล้ว
+  const markPrinted = (serials) => {
+    setSims(prev => {
+      const u = prev.map(s => serials.includes(s.serial) ? {...s, printed:true} : s);
+      lsSet("simtracker_sims_v1", JSON.stringify(u));
+      // sync Google Sheets
+      fetch(GS_URL, {method:"POST", body:JSON.stringify({action:"saveAll", sims:u})}).catch(()=>{});
+      return u;
+    });
+    toast3(`✅ บันทึกว่าพิมพ์ QR แล้ว ${serials.length} รายการ`);
+  };
+
+  // ย้ายกลับ "ยังไม่พิมพ์"
+  const unmarkPrinted = (serial) => {
+    setSims(prev => {
+      const u = prev.map(s => s.serial===serial ? {...s, printed:false} : s);
+      lsSet("simtracker_sims_v1", JSON.stringify(u));
+      fetch(GS_URL, {method:"POST", body:JSON.stringify({action:"saveAll", sims:u})}).catch(()=>{});
+      return u;
+    });
+    toast3("↩️ ย้ายกลับ ยังไม่พิมพ์ แล้ว");
+  };
+
   const markScanned = (serial) => {
     const now = Date.now();
     setSims(prev=>{
@@ -629,12 +961,16 @@ function App() {
   const pendingCount = sims.filter(s=>!s.scannedByCustomer).length;
   const scannedCount = sims.filter(s=>s.scannedByCustomer).length;
 
+  const notPrintedCount = sims.filter(s=>!s.printed).length;
+  const printedCount = sims.filter(s=>s.printed).length;
+
   const tabs = [
     {id:"scanner",label:"📷 ยิงซิม"},
+    {id:"qr_new",label:`🖨️ ยังไม่พิมพ์ QR (${notPrintedCount})`},
+    {id:"qr_done",label:`✅ พิมพ์ QR แล้ว (${printedCount})`},
     {id:"pending",label:`⏳ รอสแกน (${pendingCount})`},
-    {id:"scanned",label:`📋 สแกนซิมลงทะเบียนแล้ว (${scannedCount})`},
-    {id:"list",label:"📋 รายการ"},
-    {id:"qr",label:"🔲 QR Code"},
+    {id:"scanned",label:`📋 ลงทะเบียนแล้ว (${scannedCount})`},
+    {id:"list",label:"📋 รายการทั้งหมด"},
     {id:"summary",label:"📊 สรุป"},
     {id:"settings",label:"⚙️ ตั้งค่า"},
   ];
@@ -692,10 +1028,11 @@ function App() {
             )}
           </>
         )}
+        {tab==="qr_new"&&<QRNotPrinted sims={sims} onPreview={s=>setModal(s)} bot={botToken} chat={chatId} onMarkPrinted={markPrinted}/>}
+        {tab==="qr_done"&&<QRPrinted sims={sims} onPreview={s=>setModal(s)} bot={botToken} chat={chatId} onUnmarkPrinted={unmarkPrinted}/>}
         {tab==="pending"&&<PendingTab sims={sims} onPreview={s=>setModal(s)} onMarkScanned={markScanned}/>}
         {tab==="scanned"&&<ScannedTab sims={sims}/>}
         {tab==="list"&&<SimList sims={sims} onDelete={delSim}/>}
-        {tab==="qr"&&<QRManager sims={sims} onPreview={s=>setModal(s)} bot={botToken} chat={chatId}/>}
         {tab==="summary"&&<Summary sims={sims}/>}
         {tab==="settings"&&<Settings botToken={botToken} chatId={chatId} setBotToken={setBotToken} setChatId={setChatId} onSave={()=>toast3("✅ บันทึกแล้ว")}/>}
       </div>
