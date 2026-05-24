@@ -29,20 +29,80 @@ input::placeholder, textarea::placeholder { color: #4b5563; }
 <script type="text/babel">
 const { useState, useEffect, useRef, useCallback } = React;
 
-// ===== STORAGE (localStorage — ถาวร) =====
-const K_SIMS = "simtracker_sims_v1";
+// ===== STORAGE — Google Sheets + localStorage backup =====
+const GS_URL = "https://script.google.com/macros/s/AKfycbzv7XhVcLxUWDjjQjI-LVnHsj94IvF5-pjNYagrdldZU4ku3mgQeo2O3bMpXCzIeb-E/exec";
 const K_BOT  = "simtracker_bot_v1";
 const K_CHAT = "simtracker_chat_v1";
 const lsGet = (k) => { try { return localStorage.getItem(k); } catch(e) { return null; } };
 const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch(e) {} };
-const loadAll = () => ({
-  sims: JSON.parse(lsGet(K_SIMS) || "[]"),
-  botToken: lsGet(K_BOT) || "",
-  chatId: lsGet(K_CHAT) || "",
-});
-const saveSims = (s) => lsSet(K_SIMS, JSON.stringify(s));
+
+// โหลดข้อมูลจาก Google Sheets
+const loadAll = async () => {
+  try {
+    const res = await fetch(GS_URL + "?action=getAll");
+    const json = await res.json();
+    if (json.sims) {
+      return {
+        sims: json.sims,
+        botToken: lsGet(K_BOT) || "",
+        chatId: lsGet(K_CHAT) || "",
+      };
+    }
+  } catch(e) {
+    console.warn("Google Sheets load failed, using localStorage backup", e);
+  }
+  // fallback: localStorage
+  return {
+    sims: JSON.parse(lsGet("simtracker_sims_v1") || "[]"),
+    botToken: lsGet(K_BOT) || "",
+    chatId: lsGet(K_CHAT) || "",
+  };
+};
+
+// บันทึกซิมลง Google Sheets
+const saveSims = async (sims) => {
+  // backup localStorage ด้วย
+  lsSet("simtracker_sims_v1", JSON.stringify(sims));
+  try {
+    await fetch(GS_URL, {
+      method: "POST",
+      body: JSON.stringify({ action: "saveAll", sims }),
+    });
+  } catch(e) { console.warn("GS save failed", e); }
+};
+
 const saveBot  = (v) => lsSet(K_BOT, v);
 const saveChat = (v) => lsSet(K_CHAT, v);
+
+// เพิ่มซิมเดี่ยว (เร็วกว่า saveAll)
+const addSimToGS = async (sim) => {
+  try {
+    await fetch(GS_URL, {
+      method: "POST",
+      body: JSON.stringify({ action: "addSim", sim }),
+    });
+  } catch(e) {}
+};
+
+// อัปเดตสถานะซิม
+const updateSimInGS = async (serial, updates) => {
+  try {
+    await fetch(GS_URL, {
+      method: "POST",
+      body: JSON.stringify({ action: "updateSim", serial, updates }),
+    });
+  } catch(e) {}
+};
+
+// ลบซิม
+const deleteSimFromGS = async (serial) => {
+  try {
+    await fetch(GS_URL, {
+      method: "POST",
+      body: JSON.stringify({ action: "deleteSim", serial }),
+    });
+  } catch(e) {}
+};
 
 // ===== UTILITY =====
 const genTracking = (existing) => {
@@ -510,10 +570,16 @@ function App() {
   const [tab, setTab] = useState("scanner");
   const [toast, setToast] = useState(null);
   const [modal, setModal] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const d = loadAll();
-    setSims(d.sims); setBotToken(d.botToken); setChatId(d.chatId);
+    setLoading(true);
+    loadAll().then(d => {
+      setSims(d.sims);
+      setBotToken(d.botToken);
+      setChatId(d.chatId);
+      setLoading(false);
+    });
   }, []);
 
   const toast3 = (msg,type="ok") => { setToast({msg,type}); setTimeout(()=>setToast(null),3000); };
@@ -522,13 +588,25 @@ function App() {
     if (sims.find(s=>s.serial===serial)) { toast3(`⚠️ ${serial} มีอยู่แล้ว`,"warn"); return; }
     const trackingNo = genTracking(new Set(sims.map(s=>s.trackingNo)));
     const ns = {serial,trackingNo,scannedByCustomer:false,scannedAt:null,createdAt:Date.now()};
-    setSims(prev=>{const u=[ns,...prev];saveSims(u);return u;});
+    setSims(prev => {
+      const u = [ns, ...prev];
+      // บันทึก localStorage ทันที
+      lsSet("simtracker_sims_v1", JSON.stringify(u));
+      // บันทึก Google Sheets (async)
+      addSimToGS(ns);
+      return u;
+    });
     toast3(`✅ เพิ่มซิม ${serial} (เลขติดตาม: ${trackingNo})`);
   };
 
   const delSim = (serial) => {
     if(!confirm(`ลบซิม ${serial} ?`)) return;
-    setSims(prev=>{const u=prev.filter(s=>s.serial!==serial);saveSims(u);return u;});
+    setSims(prev => {
+      const u = prev.filter(s=>s.serial!==serial);
+      lsSet("simtracker_sims_v1", JSON.stringify(u));
+      deleteSimFromGS(serial);
+      return u;
+    });
     toast3("🗑️ ลบแล้ว","warn");
   };
 
@@ -538,9 +616,11 @@ function App() {
       const u=prev.map(s=>{
         if(s.serial!==serial) return s;
         tgSend(botToken,chatId,`✅ ลูกค้าสแกน QR Code แล้ว!\n📋 เลขซีเรียลซิม: ${s.serial}\n🔢 เลขติดตาม: ${s.trackingNo}\n⏰ เวลา: ${new Date(now).toLocaleString("th-TH")}`);
+        updateSimInGS(s.serial, {scannedByCustomer:true, scannedAt:now});
         return {...s,scannedByCustomer:true,scannedAt:now};
       });
-      saveSims(u); return u;
+      lsSet("simtracker_sims_v1", JSON.stringify(u));
+      return u;
     });
     toast3("✅ อัปเดตสถานะแล้ว");
   };
@@ -558,6 +638,16 @@ function App() {
     {id:"summary",label:"📊 สรุป"},
     {id:"settings",label:"⚙️ ตั้งค่า"},
   ];
+
+  if (loading) return (
+    <div style={{minHeight:"100vh",background:"linear-gradient(160deg,#0a0a1a,#0f172a,#1a0a2e)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",color:"white",fontFamily:"sans-serif",gap:16}}>
+      <div style={{fontSize:52}}>📶</div>
+      <div style={{fontSize:18,fontWeight:700}}>SIM Tracker</div>
+      <div style={{color:"#8b8fa8",fontSize:13}}>กำลังโหลดข้อมูลจาก Google Sheets...</div>
+      <div style={{width:36,height:36,border:"3px solid rgba(255,255,255,0.1)",borderTop:"3px solid #a78bfa",borderRadius:"50%",animation:"spin 1s linear infinite"}}/>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+    </div>
+  );
 
   return (
     <div style={S.root}>
