@@ -72,16 +72,18 @@ const saveBot  = (v) => lsSet(K_BOT, v);
 const saveChat = (v) => lsSet(K_CHAT, v);
 
 // เพิ่มซิมเดี่ยว (เร็วกว่า saveAll)
-// ส่งข้อมูลไป Google Sheets ผ่าน GET (แก้ CORS)
+// ส่งข้อมูลไป Google Sheets ผ่าน script tag (JSONP — ผ่าน CORS ได้)
 const gsCall = (params) => {
-  const url = GS_URL + "?" + Object.entries(params)
-    .map(([k,v]) => encodeURIComponent(k) + "=" + encodeURIComponent(typeof v === "object" ? JSON.stringify(v) : v))
-    .join("&");
-  // ใช้ Image trick เพื่อหลีกเลี่ยง CORS (fire-and-forget)
-  const img = new Image();
-  img.src = url;
-  // fallback: fetch no-cors
-  fetch(url, { method: "GET", mode: "no-cors" }).catch(()=>{});
+  try {
+    const url = GS_URL + "?" + Object.entries(params)
+      .map(([k,v]) => encodeURIComponent(k) + "=" + encodeURIComponent(typeof v === "object" ? JSON.stringify(v) : v))
+      .join("&");
+    const sc = document.createElement("script");
+    sc.src = url;
+    sc.onload = () => { try { document.head.removeChild(sc); } catch(e) {} };
+    sc.onerror = () => { try { document.head.removeChild(sc); } catch(e) {} };
+    document.head.appendChild(sc);
+  } catch(e) {}
 };
 
 const addSimToGS = (sim) => {
