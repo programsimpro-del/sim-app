@@ -30,72 +30,101 @@ input::placeholder, textarea::placeholder { color: #4b5563; }
 <script type="text/babel">
 const { useState, useEffect, useRef, useCallback } = React;
 
-// ===== STORAGE — Google Sheets + localStorage backup =====
+// ===== STORAGE =====
+// localStorage = primary (เร็ว ไม่หาย)
+// Google Sheets = sync (ทุกเครื่องเห็นเหมือนกัน)
 const GS_URL = "https://script.google.com/macros/s/AKfycbzv7XhVcLxUWDjjQjI-LVnHsj94IvF5-pjNYagrdldZU4ku3mgQeo2O3bMpXCzIeb-E/exec";
+const K_SIMS = "sim_v3";
 const K_BOT  = "simtracker_bot_v1";
 const K_CHAT = "simtracker_chat_v1";
+const K_SYNCED = "sim_gs_synced";
+
 const lsGet = (k) => { try { return localStorage.getItem(k); } catch(e) { return null; } };
 const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch(e) {} };
 
-// โหลดข้อมูลจาก Google Sheets
+// อ่านจาก localStorage ก่อนเสมอ — ไม่หายเมื่อรีเฟรช
+// sync จาก GS เฉพาะกรณีเครื่องใหม่ (local ว่าง)
 const loadAll = async () => {
+  const botToken = lsGet(K_BOT) || "";
+  const chatId   = lsGet(K_CHAT) || "";
+
+  // อ่าน local ก่อน (migrate key เก่า)
+  const localRaw = lsGet(K_SIMS) || lsGet("simtracker_sims_v1") || lsGet("simtracker_sims_v2") || "[]";
+  let localSims = [];
+  try { localSims = JSON.parse(localRaw); } catch(e) {}
+
+  // ถ้ามีข้อมูล local อยู่แล้ว → ใช้เลย ไม่ต้องรอ GS
+  if (localSims.length > 0) {
+    // sync GS แบบ background (ไม่บล็อก UI)
+    setTimeout(() => syncFromGS(), 1000);
+    return { sims: localSims, botToken, chatId };
+  }
+
+  // local ว่าง → ลองโหลดจาก GS (เครื่องใหม่หรือ clear cache)
+  try {
+    const res = await Promise.race([
+      fetch(GS_URL + "?action=getAll"),
+      new Promise((_, rej) => setTimeout(() => rej("timeout"), 6000))
+    ]);
+    const json = await res.json();
+    if (json.sims && json.sims.length > 0) {
+      lsSet(K_SIMS, JSON.stringify(json.sims));
+      return { sims: json.sims, botToken, chatId };
+    }
+  } catch(e) {}
+
+  return { sims: [], botToken, chatId };
+};
+
+// sync จาก GS แบบ background — ถ้า GS มีข้อมูลมากกว่า local ให้ merge
+let _syncCallback = null;
+const setSyncCallback = (fn) => { _syncCallback = fn; };
+const syncFromGS = async () => {
   try {
     const res = await fetch(GS_URL + "?action=getAll");
     const json = await res.json();
-    if (json.sims) {
-      return {
-        sims: json.sims,
-        botToken: lsGet(K_BOT) || "",
-        chatId: lsGet(K_CHAT) || "",
-      };
+    if (!json.sims) return;
+    const localRaw = lsGet(K_SIMS) || "[]";
+    const local = JSON.parse(localRaw);
+    // merge: เอา GS เป็นหลัก แต่ถ้า local มีมากกว่าให้ส่ง local ไป GS
+    if (json.sims.length > local.length) {
+      lsSet(K_SIMS, JSON.stringify(json.sims));
+      if (_syncCallback) _syncCallback(json.sims);
+    } else if (local.length > json.sims.length) {
+      // local มีข้อมูลมากกว่า → push ไป GS
+      fetch(GS_URL + "?action=saveAll&data=" + encodeURIComponent(JSON.stringify(local))).catch(() => {});
     }
-  } catch(e) {
-    console.warn("Google Sheets load failed, using localStorage backup", e);
-  }
-  // fallback: localStorage
-  return {
-    sims: JSON.parse(lsGet("simtracker_sims_v1") || "[]"),
-    botToken: lsGet(K_BOT) || "",
-    chatId: lsGet(K_CHAT) || "",
-  };
+  } catch(e) {}
 };
 
-// บันทึกซิมลง Google Sheets
+// บันทึก local ทันที + sync GS async
 const saveSims = (sims) => {
-  // backup localStorage
-  lsSet("simtracker_sims_v1", JSON.stringify(sims));
-  // sync Google Sheets ผ่าน GET
-  gsCall({ action: "saveAll", data: JSON.stringify(sims) });
+  lsSet(K_SIMS, JSON.stringify(sims));
+  // sync GS แบบ background
+  setTimeout(() => {
+    fetch(GS_URL + "?action=saveAll&data=" + encodeURIComponent(JSON.stringify(sims))).catch(() => {});
+  }, 100);
 };
 
 const saveBot  = (v) => lsSet(K_BOT, v);
 const saveChat = (v) => lsSet(K_CHAT, v);
 
-// เพิ่มซิมเดี่ยว (เร็วกว่า saveAll)
-// ส่งข้อมูลไป Google Sheets ผ่าน script tag (JSONP — ผ่าน CORS ได้)
-const gsCall = (params) => {
-  try {
-    const url = GS_URL + "?" + Object.entries(params)
-      .map(([k,v]) => encodeURIComponent(k) + "=" + encodeURIComponent(typeof v === "object" ? JSON.stringify(v) : v))
-      .join("&");
-    const sc = document.createElement("script");
-    sc.src = url;
-    sc.onload = () => { try { document.head.removeChild(sc); } catch(e) {} };
-    sc.onerror = () => { try { document.head.removeChild(sc); } catch(e) {} };
-    document.head.appendChild(sc);
-  } catch(e) {}
-};
-
 const addSimToGS = (sim) => {
-  gsCall({ action: "addSim", data: JSON.stringify(sim) });
+  setTimeout(() => {
+    fetch(GS_URL + "?action=addSim&data=" + encodeURIComponent(JSON.stringify(sim))).catch(() => {});
+  }, 200);
 };
 
 const updateSimInGS = (serial, updates) => {
-  gsCall({ action: "updateSim", serial, data: JSON.stringify(updates) });
+  setTimeout(() => {
+    fetch(GS_URL + "?action=updateSim&serial=" + encodeURIComponent(serial) + "&data=" + encodeURIComponent(JSON.stringify(updates))).catch(() => {});
+  }, 200);
 };
 
 const deleteSimFromGS = (serial) => {
-  gsCall({ action: "deleteSim", serial });
+  setTimeout(() => {
+    fetch(GS_URL + "?action=deleteSim&serial=" + encodeURIComponent(serial)).catch(() => {});
+  }, 200);
 };
 
 // ===== UTILITY =====
