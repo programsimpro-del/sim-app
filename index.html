@@ -381,6 +381,7 @@ function Settings({ botToken, chatId, setBotToken, setChatId, onSave }) {
 function Scanner({ onScan, sims }) {
   const [manual, setManual] = useState("");
   const [previewTracking, setPreviewTracking] = useState("");
+  const [reservedTracking, setReservedTracking] = useState(""); // เลขติดตามที่จองไว้
   const [cam, setCam] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [lastScan, setLastScan] = useState("");
@@ -456,23 +457,27 @@ function Scanner({ onScan, sims }) {
 
   // คำนวณเลขติดตามล่วงหน้าเมื่อกรอกเลขซีเรียล
   const computePreview = (val) => {
-    if (!val.trim()) { setPreviewTracking(""); return; }
+    if (!val.trim()) { setPreviewTracking(""); setReservedTracking(""); return; }
     // ถ้ามีซีเรียลนี้แล้ว แสดงเลขติดตามเดิม
     const existing = sims.find(s => s.serial === val.trim());
     if (existing) {
       setPreviewTracking("⚠️ มีอยู่แล้ว — เลขติดตาม: " + existing.trackingNo);
+      setReservedTracking(""); // ไม่จอง เพราะมีแล้ว
       return;
     }
-    // สร้าง preview เลขติดตาม
-    const preview = genTracking(new Set(sims.map(s => s.trackingNo)));
-    setPreviewTracking("เลขติดตามซิม: " + preview);
+    // สร้างเลขติดตามและจองไว้ — ใช้เลขนี้จริงเมื่อกดเพิ่ม
+    const reserved = genTracking(new Set(sims.map(s => s.trackingNo)));
+    setReservedTracking(reserved);
+    setPreviewTracking("เลขติดตามซิม: " + reserved);
   };
 
   const go = () => {
     if (manual.trim()) {
-      onScan(manual.trim());
+      // ส่ง serial + tracking ที่จองไว้ด้วย
+      onScan(manual.trim(), reservedTracking || null);
       setManual("");
       setPreviewTracking("");
+      setReservedTracking("");
     }
   };
 
@@ -982,15 +987,14 @@ function App() {
 
   const toast3 = (msg,type="ok") => { setToast({msg,type}); setTimeout(()=>setToast(null),3000); };
 
-  const addSim = (serial) => {
+  const addSim = (serial, reservedTracking = null) => {
     if (sims.find(s=>s.serial===serial)) { toast3(`⚠️ ${serial} มีอยู่แล้ว`,"warn"); return; }
-    const trackingNo = genTracking(new Set(sims.map(s=>s.trackingNo)));
+    // ใช้ tracking ที่จองไว้จาก preview ถ้ามี มิฉะนั้นสร้างใหม่
+    const trackingNo = reservedTracking || genTracking(new Set(sims.map(s=>s.trackingNo)));
     const ns = {serial,trackingNo,scannedByCustomer:false,scannedAt:null,createdAt:Date.now(),printed:false};
     setSims(prev => {
       const u = [ns, ...prev];
-      // บันทึก localStorage ทันที
       lsSet("simtracker_sims_v1", JSON.stringify(u));
-      // บันทึก Google Sheets (async)
       addSimToGS(ns);
       return u;
     });
