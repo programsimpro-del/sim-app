@@ -378,8 +378,9 @@ function Settings({ botToken, chatId, setBotToken, setChatId, onSave }) {
 }
 
 // ===== SCANNER =====
-function Scanner({ onScan }) {
+function Scanner({ onScan, sims }) {
   const [manual, setManual] = useState("");
+  const [previewTracking, setPreviewTracking] = useState("");
   const [cam, setCam] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [lastScan, setLastScan] = useState("");
@@ -428,6 +429,7 @@ function Scanner({ onScan }) {
               setScanMsg("✅ สแกนได้ — กดปุ่ม เพิ่ม ➕ เพื่อบันทึก");
               // ใส่ลงช่องกรอก ไม่เพิ่มอัตโนมัติ
               setManual(text);
+              computePreview(text);
               setCam(false); // ปิดกล้องหลังสแกน
               setTimeout(() => { cooldownRef.current = false; }, 1500);
             }
@@ -452,7 +454,27 @@ function Scanner({ onScan }) {
     return () => stopCam();
   }, [cam, stopCam]);
 
-  const go = () => { if(manual.trim()) { onScan(manual.trim()); setManual(""); } };
+  // คำนวณเลขติดตามล่วงหน้าเมื่อกรอกเลขซีเรียล
+  const computePreview = (val) => {
+    if (!val.trim()) { setPreviewTracking(""); return; }
+    // ถ้ามีซีเรียลนี้แล้ว แสดงเลขติดตามเดิม
+    const existing = sims.find(s => s.serial === val.trim());
+    if (existing) {
+      setPreviewTracking("⚠️ มีอยู่แล้ว — เลขติดตาม: " + existing.trackingNo);
+      return;
+    }
+    // สร้าง preview เลขติดตาม
+    const preview = genTracking(new Set(sims.map(s => s.trackingNo)));
+    setPreviewTracking("เลขติดตามซิม: " + preview);
+  };
+
+  const go = () => {
+    if (manual.trim()) {
+      onScan(manual.trim());
+      setManual("");
+      setPreviewTracking("");
+    }
+  };
 
   return (
     <div style={S.card}>
@@ -498,10 +520,36 @@ function Scanner({ onScan }) {
 
       {/* กรอกเลขเอง */}
       <div style={{display:"flex",gap:8,marginTop:12}}>
-        <input style={S.input} value={manual} onChange={e=>setManual(e.target.value)}
+        <input style={S.input} value={manual} onChange={e=>{setManual(e.target.value);computePreview(e.target.value);}}
           placeholder="สแกนบาร์โค้ดหรือกรอกเลขซีเรียลซิม..." onKeyDown={e=>e.key==="Enter"&&go()}/>
         <button style={S.btnP} onClick={go}>เพิ่ม ➕</button>
       </div>
+
+      {/* Preview เลขติดตามซิม */}
+      {previewTracking && (
+        <div style={{
+          marginTop:10,
+          padding:"12px 16px",
+          background: previewTracking.startsWith("⚠️") ? "rgba(245,158,11,0.12)" : "rgba(79,70,229,0.15)",
+          border: `1px solid ${previewTracking.startsWith("⚠️") ? "rgba(245,158,11,0.4)" : "rgba(167,139,250,0.5)"}`,
+          borderRadius:12,
+          display:"flex",
+          alignItems:"center",
+          justifyContent:"space-between",
+        }}>
+          <span style={{color:"#94a3b8",fontSize:12}}>
+            {previewTracking.startsWith("⚠️") ? "⚠️ ซีเรียลซ้ำ" : "เลขติดตามซิมที่จะได้รับ:"}
+          </span>
+          <span style={{
+            color: previewTracking.startsWith("⚠️") ? "#fbbf24" : "#a78bfa",
+            fontSize: previewTracking.startsWith("⚠️") ? 13 : 26,
+            fontWeight:800,
+            letterSpacing:2
+          }}>
+            {previewTracking.startsWith("⚠️") ? previewTracking.replace("⚠️ มีอยู่แล้ว — เลขติดตาม: ","") : previewTracking.replace("เลขติดตามซิม: ","")}
+          </span>
+        </div>
+      )}
     </div>
   );
 }
@@ -1048,22 +1096,17 @@ function App() {
       <div style={S.content}>
         {tab==="scanner"&&(
           <>
-            <Scanner onScan={addSim}/>
+            <Scanner onScan={addSim} sims={sims}/>
             {sims.length>0&&(
               <div style={S.card}>
                 <h3 style={S.sectionTitle}>🕐 เพิ่มล่าสุด</h3>
                 {sims.slice(0,5).map(s=>(
-                  <div key={s.serial} style={{padding:"10px 0",borderBottom:"1px solid rgba(255,255,255,0.06)"}}>
-                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
+                  <div key={s.serial} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"9px 0",borderBottom:"1px solid rgba(255,255,255,0.06)"}}>
+                    <div>
                       <div style={{color:"white",fontFamily:"monospace",fontSize:13}}>{s.serial}</div>
-                      <button onClick={()=>setModal(s)} style={{...S.btnS,fontSize:11,padding:"3px 9px"}}>👁 ทดสอบ</button>
+                      <div style={{color:"#a78bfa",fontSize:11,marginTop:2}}>เลขติดตาม: {s.trackingNo}</div>
                     </div>
-                    {/* ช่องเลขติดตามซิม — ใหญ่ชัดเจน สำหรับเขียนลงซิม */}
-                    <div style={{display:"flex",alignItems:"center",gap:8,background:"rgba(167,139,250,0.1)",border:"1px solid rgba(167,139,250,0.3)",borderRadius:8,padding:"6px 12px"}}>
-                      <span style={{color:"#8b8fa8",fontSize:11,whiteSpace:"nowrap"}}>เลขติดตามซิม:</span>
-                      <span style={{color:"#a78bfa",fontSize:20,fontWeight:800,letterSpacing:2}}>{s.trackingNo}</span>
-                      <span style={{color:"#6ee7b7",fontSize:10,marginLeft:"auto"}}>{s.scannedByCustomer?"✅ ลงทะเบียนแล้ว":"⏳ รอสแกน"}</span>
-                    </div>
+                    <button onClick={()=>setModal(s)} style={{...S.btnS,fontSize:11,padding:"3px 9px"}}>👁 ทดสอบ</button>
                   </div>
                 ))}
               </div>
