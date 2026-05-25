@@ -61,48 +61,39 @@ const loadAll = async () => {
 };
 
 // บันทึกซิมลง Google Sheets
-const saveSims = async (sims) => {
-  // backup localStorage ด้วย
+const saveSims = (sims) => {
+  // backup localStorage
   lsSet("simtracker_sims_v1", JSON.stringify(sims));
-  try {
-    await fetch(GS_URL, {
-      method: "POST",
-      body: JSON.stringify({ action: "saveAll", sims }),
-    });
-  } catch(e) { console.warn("GS save failed", e); }
+  // sync Google Sheets ผ่าน GET
+  gsCall({ action: "saveAll", data: JSON.stringify(sims) });
 };
 
 const saveBot  = (v) => lsSet(K_BOT, v);
 const saveChat = (v) => lsSet(K_CHAT, v);
 
 // เพิ่มซิมเดี่ยว (เร็วกว่า saveAll)
-const addSimToGS = async (sim) => {
-  try {
-    await fetch(GS_URL, {
-      method: "POST",
-      body: JSON.stringify({ action: "addSim", sim }),
-    });
-  } catch(e) {}
+// ส่งข้อมูลไป Google Sheets ผ่าน GET (แก้ CORS)
+const gsCall = (params) => {
+  const url = GS_URL + "?" + Object.entries(params)
+    .map(([k,v]) => encodeURIComponent(k) + "=" + encodeURIComponent(typeof v === "object" ? JSON.stringify(v) : v))
+    .join("&");
+  // ใช้ Image trick เพื่อหลีกเลี่ยง CORS (fire-and-forget)
+  const img = new Image();
+  img.src = url;
+  // fallback: fetch no-cors
+  fetch(url, { method: "GET", mode: "no-cors" }).catch(()=>{});
 };
 
-// อัปเดตสถานะซิม
-const updateSimInGS = async (serial, updates) => {
-  try {
-    await fetch(GS_URL, {
-      method: "POST",
-      body: JSON.stringify({ action: "updateSim", serial, updates }),
-    });
-  } catch(e) {}
+const addSimToGS = (sim) => {
+  gsCall({ action: "addSim", data: JSON.stringify(sim) });
 };
 
-// ลบซิม
-const deleteSimFromGS = async (serial) => {
-  try {
-    await fetch(GS_URL, {
-      method: "POST",
-      body: JSON.stringify({ action: "deleteSim", serial }),
-    });
-  } catch(e) {}
+const updateSimInGS = (serial, updates) => {
+  gsCall({ action: "updateSim", serial, data: JSON.stringify(updates) });
+};
+
+const deleteSimFromGS = (serial) => {
+  gsCall({ action: "deleteSim", serial });
 };
 
 // ===== UTILITY =====
@@ -975,7 +966,7 @@ function App() {
       const u = prev.map(s => serials.includes(s.serial) ? {...s, printed:true} : s);
       lsSet("simtracker_sims_v1", JSON.stringify(u));
       // sync Google Sheets
-      fetch(GS_URL, {method:"POST", body:JSON.stringify({action:"saveAll", sims:u})}).catch(()=>{});
+      gsCall({ action: "saveAll", data: JSON.stringify(u) });
       return u;
     });
     toast3(`✅ บันทึกว่าพิมพ์ QR แล้ว ${serials.length} รายการ`);
@@ -986,7 +977,7 @@ function App() {
     setSims(prev => {
       const u = prev.map(s => s.serial===serial ? {...s, printed:false} : s);
       lsSet("simtracker_sims_v1", JSON.stringify(u));
-      fetch(GS_URL, {method:"POST", body:JSON.stringify({action:"saveAll", sims:u})}).catch(()=>{});
+      gsCall({ action: "saveAll", data: JSON.stringify(u) });
       return u;
     });
     toast3("↩️ ย้ายกลับ ยังไม่พิมพ์ แล้ว");
@@ -1062,12 +1053,17 @@ function App() {
               <div style={S.card}>
                 <h3 style={S.sectionTitle}>🕐 เพิ่มล่าสุด</h3>
                 {sims.slice(0,5).map(s=>(
-                  <div key={s.serial} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"9px 0",borderBottom:"1px solid rgba(255,255,255,0.06)"}}>
-                    <div>
+                  <div key={s.serial} style={{padding:"10px 0",borderBottom:"1px solid rgba(255,255,255,0.06)"}}>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
                       <div style={{color:"white",fontFamily:"monospace",fontSize:13}}>{s.serial}</div>
-                      <div style={{color:"#a78bfa",fontSize:11}}>เลขติดตาม: {s.trackingNo}</div>
+                      <button onClick={()=>setModal(s)} style={{...S.btnS,fontSize:11,padding:"3px 9px"}}>👁 ทดสอบ</button>
                     </div>
-                    <button onClick={()=>setModal(s)} style={{...S.btnS,fontSize:11,padding:"3px 9px"}}>👁 ทดสอบ</button>
+                    {/* ช่องเลขติดตามซิม — ใหญ่ชัดเจน สำหรับเขียนลงซิม */}
+                    <div style={{display:"flex",alignItems:"center",gap:8,background:"rgba(167,139,250,0.1)",border:"1px solid rgba(167,139,250,0.3)",borderRadius:8,padding:"6px 12px"}}>
+                      <span style={{color:"#8b8fa8",fontSize:11,whiteSpace:"nowrap"}}>เลขติดตามซิม:</span>
+                      <span style={{color:"#a78bfa",fontSize:20,fontWeight:800,letterSpacing:2}}>{s.trackingNo}</span>
+                      <span style={{color:"#6ee7b7",fontSize:10,marginLeft:"auto"}}>{s.scannedByCustomer?"✅ ลงทะเบียนแล้ว":"⏳ รอสแกน"}</span>
+                    </div>
                   </div>
                 ))}
               </div>
