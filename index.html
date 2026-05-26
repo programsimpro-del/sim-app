@@ -1022,7 +1022,7 @@ function App() {
     setSims(prev => {
       const u = prev.map(s => serials.includes(s.serial) ? {...s, printed:true} : s);
       lsSet("simtracker_sims_v1", JSON.stringify(u));
-      // sync Google Sheets
+      // sync Firebase
       gsCall({ action: "saveAll", data: JSON.stringify(u) });
       return u;
     });
@@ -1073,7 +1073,7 @@ function App() {
     <div style={{minHeight:"100vh",background:"linear-gradient(160deg,#0a0a1a,#0f172a,#1a0a2e)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",color:"white",fontFamily:"sans-serif",gap:16}}>
       <div style={{fontSize:52}}>📶</div>
       <div style={{fontSize:18,fontWeight:700}}>SIM Tracker</div>
-      <div style={{color:"#8b8fa8",fontSize:13}}>กำลังโหลดข้อมูลจาก Google Sheets...</div>
+      <div style={{color:"#8b8fa8",fontSize:13}}>กำลังโหลดข้อมูลจาก Firebase...</div>
       <div style={{width:36,height:36,border:"3px solid rgba(255,255,255,0.1)",borderTop:"3px solid #a78bfa",borderRadius:"50%",animation:"spin 1s linear infinite"}}/>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
     </div>
