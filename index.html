@@ -30,102 +30,76 @@ input::placeholder, textarea::placeholder { color: #4b5563; }
 <script type="text/babel">
 const { useState, useEffect, useRef, useCallback } = React;
 
-// ===== STORAGE =====
-// localStorage = primary (เร็ว ไม่หาย)
-// Google Sheets = sync (ทุกเครื่องเห็นเหมือนกัน)
-const GS_URL = "https://script.google.com/macros/s/AKfycbzv7XhVcLxUWDjjQjI-LVnHsj94IvF5-pjNYagrdldZU4ku3mgQeo2O3bMpXCzIeb-E/exec";
-const K_SIMS = "sim_v3";
+// ===== FIREBASE REALTIME DATABASE =====
+const FB_URL = "https://simtracker-3a70d-default-rtdb.asia-southeast1.firebasedatabase.app";
 const K_BOT  = "simtracker_bot_v1";
 const K_CHAT = "simtracker_chat_v1";
-const K_SYNCED = "sim_gs_synced";
+const K_SIMS = "sim_v3";
 
 const lsGet = (k) => { try { return localStorage.getItem(k); } catch(e) { return null; } };
 const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch(e) {} };
 
-// อ่านจาก localStorage ก่อนเสมอ — ไม่หายเมื่อรีเฟรช
-// sync จาก GS เฉพาะกรณีเครื่องใหม่ (local ว่าง)
+// แปลง serial เป็น Firebase key
+const toKey = (serial) => String(serial).replace(/[.#$[\]]/g, "_");
+
+// Firebase REST API
+const fbGet    = (path) => fetch(`${FB_URL}${path}.json`).then(r => r.json());
+const fbSet    = (path, data) => fetch(`${FB_URL}${path}.json`, { method:"PUT",    headers:{"Content-Type":"application/json"}, body:JSON.stringify(data) });
+const fbPatch  = (path, data) => fetch(`${FB_URL}${path}.json`, { method:"PATCH",  headers:{"Content-Type":"application/json"}, body:JSON.stringify(data) });
+const fbDelete = (path)       => fetch(`${FB_URL}${path}.json`, { method:"DELETE" });
+
+// โหลดข้อมูล — Firebase primary, localStorage backup
 const loadAll = async () => {
   const botToken = lsGet(K_BOT) || "";
   const chatId   = lsGet(K_CHAT) || "";
-
-  // อ่าน local ก่อน (migrate key เก่า)
-  const localRaw = lsGet(K_SIMS) || lsGet("simtracker_sims_v1") || lsGet("simtracker_sims_v2") || "[]";
-  let localSims = [];
+  const localRaw = lsGet(K_SIMS) || "[]";
+  let localSims  = [];
   try { localSims = JSON.parse(localRaw); } catch(e) {}
 
-  // ถ้ามีข้อมูล local อยู่แล้ว → ใช้เลย ไม่ต้องรอ GS
-  if (localSims.length > 0) {
-    // sync GS แบบ background (ไม่บล็อก UI)
-    setTimeout(() => syncFromGS(), 1000);
-    return { sims: localSims, botToken, chatId };
+  try {
+    const data = await Promise.race([
+      fbGet("/sims"),
+      new Promise((_, rej) => setTimeout(() => rej("timeout"), 5000))
+    ]);
+    if (data && typeof data === "object" && !data.error) {
+      const fbSims = Object.values(data).filter(s => s && s.serial);
+      // ใช้ Firebase ถ้ามีข้อมูล หรือมากกว่า local
+      if (fbSims.length > 0) {
+        lsSet(K_SIMS, JSON.stringify(fbSims));
+        return { sims: fbSims, botToken, chatId };
+      }
+    }
+  } catch(e) {
+    console.warn("Firebase offline, using localStorage");
   }
 
-  // local ว่าง → ลองโหลดจาก GS (เครื่องใหม่หรือ clear cache)
-  try {
-    const res = await Promise.race([
-      fetch(GS_URL + "?action=getAll"),
-      new Promise((_, rej) => setTimeout(() => rej("timeout"), 6000))
-    ]);
-    const json = await res.json();
-    if (json.sims && json.sims.length > 0) {
-      lsSet(K_SIMS, JSON.stringify(json.sims));
-      return { sims: json.sims, botToken, chatId };
-    }
-  } catch(e) {}
-
-  return { sims: [], botToken, chatId };
+  // ถ้า Firebase ไม่ตอบ → ใช้ localStorage
+  if (localSims.length > 0) {
+    // push local ไป Firebase แบบ background
+    setTimeout(() => {
+      const obj = {};
+      localSims.forEach(s => { obj[toKey(s.serial)] = s; });
+      fbSet("/sims", obj).catch(() => {});
+    }, 2000);
+  }
+  return { sims: localSims, botToken, chatId };
 };
 
-// sync จาก GS แบบ background — ถ้า GS มีข้อมูลมากกว่า local ให้ merge
-let _syncCallback = null;
-const setSyncCallback = (fn) => { _syncCallback = fn; };
-const syncFromGS = async () => {
-  try {
-    const res = await fetch(GS_URL + "?action=getAll");
-    const json = await res.json();
-    if (!json.sims) return;
-    const localRaw = lsGet(K_SIMS) || "[]";
-    const local = JSON.parse(localRaw);
-    // merge: เอา GS เป็นหลัก แต่ถ้า local มีมากกว่าให้ส่ง local ไป GS
-    if (json.sims.length > local.length) {
-      lsSet(K_SIMS, JSON.stringify(json.sims));
-      if (_syncCallback) _syncCallback(json.sims);
-    } else if (local.length > json.sims.length) {
-      // local มีข้อมูลมากกว่า → push ไป GS
-      fetch(GS_URL + "?action=saveAll&data=" + encodeURIComponent(JSON.stringify(local))).catch(() => {});
-    }
-  } catch(e) {}
-};
-
-// บันทึก local ทันที + sync GS async
+// บันทึก — local ทันที + Firebase async
 const saveSims = (sims) => {
   lsSet(K_SIMS, JSON.stringify(sims));
-  // sync GS แบบ background
-  setTimeout(() => {
-    fetch(GS_URL + "?action=saveAll&data=" + encodeURIComponent(JSON.stringify(sims))).catch(() => {});
-  }, 100);
+  const obj = {};
+  sims.forEach(s => { obj[toKey(s.serial)] = s; });
+  fbSet("/sims", obj).catch(() => {});
 };
 
 const saveBot  = (v) => lsSet(K_BOT, v);
 const saveChat = (v) => lsSet(K_CHAT, v);
 
-const addSimToGS = (sim) => {
-  setTimeout(() => {
-    fetch(GS_URL + "?action=addSim&data=" + encodeURIComponent(JSON.stringify(sim))).catch(() => {});
-  }, 200);
-};
-
-const updateSimInGS = (serial, updates) => {
-  setTimeout(() => {
-    fetch(GS_URL + "?action=updateSim&serial=" + encodeURIComponent(serial) + "&data=" + encodeURIComponent(JSON.stringify(updates))).catch(() => {});
-  }, 200);
-};
-
-const deleteSimFromGS = (serial) => {
-  setTimeout(() => {
-    fetch(GS_URL + "?action=deleteSim&serial=" + encodeURIComponent(serial)).catch(() => {});
-  }, 200);
-};
+// เพิ่ม/อัปเดต/ลบแบบ single operation (เร็วกว่า saveAll)
+const addSimToGS    = (sim)             => fbSet(`/sims/${toKey(sim.serial)}`, sim).catch(() => {});
+const updateSimInGS = (serial, updates) => fbPatch(`/sims/${toKey(serial)}`, updates).catch(() => {});
+const deleteSimFromGS = (serial)        => fbDelete(`/sims/${toKey(serial)}`).catch(() => {});
 
 // ===== UTILITY =====
 const genTracking = (existing) => {
