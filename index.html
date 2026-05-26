@@ -29,25 +29,25 @@ input::placeholder, textarea::placeholder { color: #4b5563; }
 <div id="root"></div>
 <script type="text/babel">
 const { useState, useEffect, useRef, useCallback } = React;
- 
+
 // ===== FIREBASE REALTIME DATABASE =====
 const FB_URL = "https://simtracker-3a70d-default-rtdb.asia-southeast1.firebasedatabase.app";
 const K_BOT  = "simtracker_bot_v1";
 const K_CHAT = "simtracker_chat_v1";
 const K_SIMS = "sim_v3";
- 
+
 const lsGet = (k) => { try { return localStorage.getItem(k); } catch(e) { return null; } };
 const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch(e) {} };
- 
+
 // แปลง serial เป็น Firebase key
 const toKey = (serial) => String(serial).replace(/[.#$[\]]/g, "_");
- 
+
 // Firebase REST API
 const fbGet    = (path) => fetch(`${FB_URL}${path}.json`).then(r => r.json());
 const fbSet    = (path, data) => fetch(`${FB_URL}${path}.json`, { method:"PUT",    headers:{"Content-Type":"application/json"}, body:JSON.stringify(data) });
 const fbPatch  = (path, data) => fetch(`${FB_URL}${path}.json`, { method:"PATCH",  headers:{"Content-Type":"application/json"}, body:JSON.stringify(data) });
 const fbDelete = (path)       => fetch(`${FB_URL}${path}.json`, { method:"DELETE" });
- 
+
 // โหลดข้อมูล — Firebase primary, localStorage backup
 const loadAll = async () => {
   const botToken = lsGet(K_BOT) || "";
@@ -55,7 +55,7 @@ const loadAll = async () => {
   const localRaw = lsGet(K_SIMS) || "[]";
   let localSims  = [];
   try { localSims = JSON.parse(localRaw); } catch(e) {}
- 
+
   try {
     const data = await Promise.race([
       fbGet("/sims"),
@@ -72,7 +72,7 @@ const loadAll = async () => {
   } catch(e) {
     console.warn("Firebase offline, using localStorage");
   }
- 
+
   // ถ้า Firebase ไม่ตอบ → ใช้ localStorage
   if (localSims.length > 0) {
     // push local ไป Firebase แบบ background
@@ -84,7 +84,7 @@ const loadAll = async () => {
   }
   return { sims: localSims, botToken, chatId };
 };
- 
+
 // บันทึก — local ทันที + Firebase async
 const saveSims = (sims) => {
   lsSet(K_SIMS, JSON.stringify(sims));
@@ -92,15 +92,15 @@ const saveSims = (sims) => {
   sims.forEach(s => { obj[toKey(s.serial)] = s; });
   fbSet("/sims", obj).catch(() => {});
 };
- 
+
 const saveBot  = (v) => lsSet(K_BOT, v);
 const saveChat = (v) => lsSet(K_CHAT, v);
- 
+
 // เพิ่ม/อัปเดต/ลบแบบ single operation (เร็วกว่า saveAll)
 const addSimToGS    = (sim)             => fbSet(`/sims/${toKey(sim.serial)}`, sim).catch(() => {});
 const updateSimInGS = (serial, updates) => fbPatch(`/sims/${toKey(serial)}`, updates).catch(() => {});
 const deleteSimFromGS = (serial)        => fbDelete(`/sims/${toKey(serial)}`).catch(() => {});
- 
+
 // ===== UTILITY =====
 const genTracking = (existing) => {
   const d = Math.floor(Math.random() * 4) + 2;
@@ -118,7 +118,7 @@ const tgSend = (bot, chat, text) => {
     body: JSON.stringify({ chat_id: chat, text }),
   }).catch(() => {});
 };
- 
+
 const GITHUB_BASE = "https://programsimpro-del.github.io/Sim";
 const makeQRUrl = (serial, trackingNo, bot="", chat="") => {
   let url = `${GITHUB_BASE}/?s=${encodeURIComponent(serial)}&t=${encodeURIComponent(trackingNo)}`;
@@ -126,7 +126,7 @@ const makeQRUrl = (serial, trackingNo, bot="", chat="") => {
   if (chat) url += `&tgchat=${encodeURIComponent(chat)}`;
   return url;
 };
- 
+
 // ===== BARCODE =====
 function Barcode({ value, w=320, h=56 }) {
   const ref = useRef(null);
@@ -144,7 +144,7 @@ function Barcode({ value, w=320, h=56 }) {
   }, [value]);
   return <canvas ref={ref} style={{display:"block",margin:"0 auto",maxWidth:"100%"}} />;
 }
- 
+
 // ===== QR =====
 function QR({ text, size=130 }) {
   const ref = useRef(null);
@@ -162,7 +162,7 @@ function QR({ text, size=130 }) {
     </div>
   );
 }
- 
+
 // ===== STYLES =====
 const S = {
   root:{minHeight:"100vh",background:"linear-gradient(160deg,#0a0a1a,#0f172a,#1a0a2e)",fontFamily:"'Noto Sans Thai','Sarabun',sans-serif",color:"white"},
@@ -182,7 +182,7 @@ const S = {
   th:{padding:"9px 10px",textAlign:"left",color:"#8b8fa8",fontWeight:600,borderBottom:"1px solid rgba(255,255,255,0.08)",whiteSpace:"nowrap",fontSize:12},
   td:{padding:"9px 10px",color:"#e2e8f0",borderBottom:"1px solid rgba(255,255,255,0.04)"},
 };
- 
+
 // ===== CUSTOMER MODAL =====
 function CustomerModal({ sim, onClose }) {
   const [confirmed, setConfirmed] = useState(false);
@@ -224,7 +224,7 @@ function CustomerModal({ sim, onClose }) {
     </div>
   );
 }
- 
+
 // ===== PENDING TAB =====
 function PendingTab({ sims, onPreview, onMarkScanned }) {
   const [q, setQ] = useState("");
@@ -261,13 +261,13 @@ function PendingTab({ sims, onPreview, onMarkScanned }) {
     </div>
   );
 }
- 
+
 // ===== SCANNED TAB =====
 function ScannedTab({ sims }) {
   const [q, setQ] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
- 
+
   const fl = sims.filter(s => {
     if (!s.scannedByCustomer) return false;
     if (!(s.serial.toLowerCase().includes(q.toLowerCase()) || s.trackingNo.includes(q))) return false;
@@ -281,7 +281,7 @@ function ScannedTab({ sims }) {
     }
     return true;
   });
- 
+
   const exportExcel = () => {
     const header = ["เลขซีเรียลซิม", "วันที่ลงทะเบียน", "เวลา", "สถานะ"];
     const rows = fl.map(s => [
@@ -298,14 +298,14 @@ function ScannedTab({ sims }) {
       download: `sim_registered${label}_${todayKey()}.csv`
     }).click();
   };
- 
+
   return (
     <div style={S.card}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
         <h3 style={{...S.sectionTitle,margin:0}}>📋 สแกนซิมลงทะเบียนแล้ว ({fl.length})</h3>
         <button style={S.btnG} onClick={exportExcel}>📥 Export Excel</button>
       </div>
- 
+
       {/* ตัวกรองวันที่ */}
       <div style={{background:"rgba(79,70,229,0.08)",border:"1px solid rgba(79,70,229,0.25)",borderRadius:10,padding:"10px 14px",marginBottom:12}}>
         <div style={{color:"#c7d2fe",fontSize:12,fontWeight:700,marginBottom:8}}>📅 กำหนดช่วงวันที่ (Export เฉพาะช่วงนี้)</div>
@@ -321,9 +321,9 @@ function ScannedTab({ sims }) {
           <button style={{...S.btnS,alignSelf:"flex-end",padding:"8px 12px",fontSize:12}} onClick={()=>{setDateFrom("");setDateTo("");}}>ล้างวันที่</button>
         </div>
       </div>
- 
+
       <input style={{...S.input,marginBottom:12}} value={q} onChange={e=>setQ(e.target.value)} placeholder="🔍 ค้นหาเลขซีเรียลหรือเลขติดตาม..."/>
- 
+
       {fl.length===0&&<div style={{textAlign:"center",padding:40,color:"#8b8fa8"}}><div style={{fontSize:40,marginBottom:8}}>📭</div><div>ยังไม่มีข้อมูลในช่วงวันที่ที่เลือก</div></div>}
       <div style={{display:"flex",flexDirection:"column",gap:8}}>
         {fl.map(s=>(
@@ -340,7 +340,7 @@ function ScannedTab({ sims }) {
     </div>
   );
 }
- 
+
 // ===== SETTINGS =====
 function Settings({ botToken, chatId, setBotToken, setChatId, onSave }) {
   const [b, setB] = useState(botToken);
@@ -381,7 +381,7 @@ function Settings({ botToken, chatId, setBotToken, setChatId, onSave }) {
     </div>
   );
 }
- 
+
 // ===== SCANNER =====
 function Scanner({ onScan, sims }) {
   const [manual, setManual] = useState("");
@@ -394,7 +394,7 @@ function Scanner({ onScan, sims }) {
   const vRef = useRef(null);
   const readerRef = useRef(null);
   const cooldownRef = useRef(false);
- 
+
   const stopCam = useCallback(() => {
     if (readerRef.current) {
       try { readerRef.current.reset(); } catch(e) {}
@@ -403,10 +403,10 @@ function Scanner({ onScan, sims }) {
     setScanning(false);
     setScanMsg("");
   }, []);
- 
+
   useEffect(() => {
     if (!cam) { stopCam(); return; }
- 
+
     const startReader = () => {
       if (!window.ZXing || !vRef.current) return;
       try {
@@ -420,12 +420,12 @@ function Scanner({ onScan, sims }) {
         ];
         hints.set(window.ZXing.DecodeHintType.POSSIBLE_FORMATS, formats);
         hints.set(window.ZXing.DecodeHintType.TRY_HARDER, true);
- 
+
         const reader = new window.ZXing.BrowserMultiFormatReader(hints);
         readerRef.current = reader;
         setScanning(true);
         setScanMsg("🔍 ชี้กล้องไปที่บาร์โค้ดซิม...");
- 
+
         reader.decodeFromVideoDevice(null, vRef.current, (result, err) => {
           if (result && !cooldownRef.current) {
             const text = result.getText();
@@ -445,7 +445,7 @@ function Scanner({ onScan, sims }) {
         setScanMsg("❌ ไม่สามารถเริ่มสแกนได้: " + e.message);
       }
     };
- 
+
     if (window.ZXing) {
       startReader();
     } else {
@@ -456,10 +456,10 @@ function Scanner({ onScan, sims }) {
       sc.onerror = () => setScanMsg("❌ โหลด ZXing ไม่ได้ กรุณากรอกเลขเอง");
       document.head.appendChild(sc);
     }
- 
+
     return () => stopCam();
   }, [cam, stopCam]);
- 
+
   // คำนวณเลขติดตามล่วงหน้าเมื่อกรอกเลขซีเรียล
   const computePreview = (val) => {
     if (!val.trim()) { setPreviewTracking(""); setReservedTracking(""); return; }
@@ -475,7 +475,7 @@ function Scanner({ onScan, sims }) {
     setReservedTracking(reserved);
     setPreviewTracking("เลขติดตามซิม: " + reserved);
   };
- 
+
   const go = () => {
     if (manual.trim()) {
       // ส่ง serial + tracking ที่จองไว้ด้วย
@@ -485,15 +485,15 @@ function Scanner({ onScan, sims }) {
       setReservedTracking("");
     }
   };
- 
+
   return (
     <div style={S.card}>
       <h3 style={S.sectionTitle}>📷 ยิงเลขซีเรียลซิม</h3>
- 
+
       <button style={cam ? S.btnDO : S.btnS} onClick={() => setCam(v => !v)}>
         {cam ? "🔴 ปิดกล้อง" : "📷 เปิดกล้องสแกนบาร์โค้ด"}
       </button>
- 
+
       {cam && (
         <div style={{marginTop:12}}>
           {/* กรอบ viewfinder */}
@@ -510,7 +510,7 @@ function Scanner({ onScan, sims }) {
               <div key={i} style={{position:"absolute",width:20,height:20,...style}}/>
             ))}
           </div>
- 
+
           {/* สถานะสแกน */}
           <div style={{marginTop:8,padding:"8px 14px",borderRadius:10,textAlign:"center",fontSize:13,fontWeight:600,
             background: scanMsg.startsWith("✅") ? "rgba(5,150,105,0.15)" : "rgba(79,70,229,0.12)",
@@ -519,7 +519,7 @@ function Scanner({ onScan, sims }) {
           }}>
             {scanMsg || "กำลังเตรียมกล้อง..."}
           </div>
- 
+
           {lastScan && (
             <div style={{marginTop:8,padding:"10px 14px",background:"rgba(5,150,105,0.12)",border:"1px solid rgba(5,150,105,0.4)",borderRadius:10,fontSize:13,color:"#6ee7b7",textAlign:"center"}}>
               ✅ สแกนได้แล้ว! กดปุ่ม <strong style={{color:"white"}}>เพิ่ม ➕</strong> ด้านล่างเพื่อบันทึก
@@ -527,14 +527,14 @@ function Scanner({ onScan, sims }) {
           )}
         </div>
       )}
- 
+
       {/* กรอกเลขเอง */}
       <div style={{display:"flex",gap:8,marginTop:12}}>
         <input style={S.input} value={manual} onChange={e=>{setManual(e.target.value);computePreview(e.target.value);}}
           placeholder="สแกนบาร์โค้ดหรือกรอกเลขซีเรียลซิม..." onKeyDown={e=>e.key==="Enter"&&go()}/>
         <button style={S.btnP} onClick={go}>เพิ่ม ➕</button>
       </div>
- 
+
       {/* Preview เลขติดตามซิม */}
       {previewTracking && (
         <div style={{
@@ -563,7 +563,7 @@ function Scanner({ onScan, sims }) {
     </div>
   );
 }
- 
+
 // ===== SIM LIST =====
 function SimList({ sims, onDelete }) {
   const [q,setQ]=useState(""); const [pg,setPg]=useState(1); const pp=15;
@@ -571,10 +571,10 @@ function SimList({ sims, onDelete }) {
   const [scanMsg, setScanMsg] = useState("");
   const scanRef = useRef(null);
   const scanReaderRef = useRef(null);
- 
+
   const fl=sims.filter(s=>s.serial.toLowerCase().includes(q.toLowerCase())||s.trackingNo.includes(q));
   const pd=fl.slice((pg-1)*pp,pg*pp), pages=Math.ceil(fl.length/pp);
- 
+
   // สแกนบาร์โค้ดเพื่อค้นหา
   useEffect(() => {
     if (!scanCam) {
@@ -612,7 +612,7 @@ function SimList({ sims, onDelete }) {
     }
     return () => { if(scanReaderRef.current){try{scanReaderRef.current.reset();}catch(e){} scanReaderRef.current=null;} };
   }, [scanCam]);
- 
+
   const csv=()=>{
     const h=["เลขซีเรียล","เลขติดตาม","สถานะ","วันที่เพิ่ม","วันที่สแกน"];
     const r=fl.map(s=>[s.serial,s.trackingNo,s.scannedByCustomer?"✓":"-",fmtDate(s.createdAt),s.scannedAt?fmtDate(s.scannedAt)+" "+fmtTime(s.scannedAt):"-"]);
@@ -625,7 +625,7 @@ function SimList({ sims, onDelete }) {
         <h3 style={{...S.sectionTitle,margin:0}}>📋 รายการซิมทั้งหมด ({fl.length})</h3>
         <button style={S.btnG} onClick={csv}>📥 Export Excel</button>
       </div>
- 
+
       {/* ช่องค้นหา + ปุ่มกล้อง */}
       <div style={{display:"flex",gap:8,marginBottom:scanCam?8:12,alignItems:"center"}}>
         <div style={{position:"relative",flex:1}}>
@@ -650,7 +650,7 @@ function SimList({ sims, onDelete }) {
           {scanCam ? "🔴 ปิด" : "📷 สแกน"}
         </button>
       </div>
- 
+
       {/* กล้องสแกน */}
       {scanCam && (
         <div style={{marginBottom:12}}>
@@ -695,40 +695,40 @@ function SimList({ sims, onDelete }) {
     </div>
   );
 }
- 
+
 // ===== QR MAIN (รวม 3 สถานะ: รอพิมพ์, ยังไม่พิมพ์, พิมพ์แล้ว) =====
 function QRMain({ sims, onPreview, bot, chat, onMarkPrinted, onUnmarkPrinted, onDeleteSim }) {
   const [subTab, setSubTab] = useState("waiting"); // waiting=รอพิมพ์, new=ยังไม่พิมพ์, done=พิมพ์แล้ว
   const [sel, setSel] = useState([]);
   const [q, setQ] = useState("");
   const [printing, setPrinting] = useState(false);
- 
+
   // รอพิมพ์ = ที่เลือกค้างไว้ (ยังไม่ได้พิมพ์จริง) — ใช้ localStorage เก็บ
   const [waiting, setWaiting] = useState(() => {
     try { return JSON.parse(localStorage.getItem("sim_waiting") || "[]"); } catch(e) { return []; }
   });
   const saveWaiting = (arr) => { localStorage.setItem("sim_waiting", JSON.stringify(arr)); setWaiting(arr); };
- 
+
   const notPrinted = sims.filter(s => !s.printed && !waiting.includes(s.serial));
   const waitingList = sims.filter(s => waiting.includes(s.serial));
   const printed = sims.filter(s => s.printed);
- 
+
   const fl = (list) => list.filter(s => s.serial.toLowerCase().includes(q.toLowerCase()) || s.trackingNo.includes(q));
   const tog = (serial) => setSel(prev => prev.includes(serial) ? prev.filter(s=>s!==serial) : [...prev,serial]);
- 
+
   // ย้ายที่เลือกไป "รอพิมพ์"
   const moveToWaiting = () => {
     const newWaiting = [...new Set([...waiting, ...sel])];
     saveWaiting(newWaiting);
     setSel([]);
   };
- 
+
   // พิมพ์จริง — ย้ายจาก "รอพิมพ์" → "พิมพ์แล้ว"
   const doPrint = async () => {
     const toPrint = subTab === "waiting" ? waitingList.filter(s => sel.includes(s.serial)) : sims.filter(s => sel.includes(s.serial));
     if (toPrint.length === 0) return;
     setPrinting(true);
- 
+
     // สร้าง QR dataURLs
     const qrDataUrls = {};
     for (const s of toPrint) {
@@ -748,7 +748,7 @@ function QRMain({ sims, onPreview, bot, chat, onMarkPrinted, onUnmarkPrinted, on
         } catch(e) { try{document.body.removeChild(div);}catch(e2){} resolve(); }
       });
     }
- 
+
     const cards = toPrint.map(s => {
       const d = qrDataUrls[s.serial] || "";
       return `<div class="card">${d?`<img src="${d}" width="160" height="160"/>`:`<div style="width:160px;height:160px;background:#eee;display:flex;align-items:center;justify-content:center">QR</div>`}<div class="trk">ซิมหมายเลข: ${s.trackingNo}</div><div class="lbl">สแกน QR Code เพื่อรับบาร์โค้ดซิมและทำการลงทะเบียนซิมที่นี่</div></div>`;
@@ -758,26 +758,26 @@ function QRMain({ sims, onPreview, bot, chat, onMarkPrinted, onUnmarkPrinted, on
     const a = Object.assign(document.createElement("a"),{href:URL.createObjectURL(blob),target:"_blank",rel:"noopener"});
     document.body.appendChild(a); a.click();
     setTimeout(()=>{document.body.removeChild(a);},1000);
- 
+
     // มาร์คว่าพิมพ์แล้ว + ลบออกจาก waiting
     const printedSerials = toPrint.map(s=>s.serial);
     onMarkPrinted(printedSerials);
     saveWaiting(waiting.filter(s=>!printedSerials.includes(s)));
     setSel([]); setPrinting(false);
   };
- 
+
   const subTabs = [
     { id:"waiting", label:`🕐 รอพิมพ์ (${waitingList.length})`, color:"#fbbf24" },
     { id:"new",     label:`🖨️ ยังไม่พิมพ์ (${notPrinted.length})`, color:"#a5b4fc" },
     { id:"done",    label:`✅ พิมพ์แล้ว (${printed.length})`, color:"#6ee7b7" },
   ];
- 
+
   const currentList = subTab==="waiting" ? waitingList : subTab==="new" ? notPrinted : printed;
- 
+
   return (
     <div style={S.card}>
       <h3 style={{...S.sectionTitle, marginBottom:12}}>🔲 QR Code Serial Sim</h3>
- 
+
       {/* Sub Tabs */}
       <div style={{display:"flex",gap:6,marginBottom:14,borderBottom:"1px solid rgba(255,255,255,0.08)",paddingBottom:10}}>
         {subTabs.map(st=>(
@@ -791,14 +791,14 @@ function QRMain({ sims, onPreview, bot, chat, onMarkPrinted, onUnmarkPrinted, on
           </button>
         ))}
       </div>
- 
+
       {/* ค้นหา + ปุ่มเลือก */}
       <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap"}}>
         <input style={{...S.input,flex:1,minWidth:140}} value={q} onChange={e=>setQ(e.target.value)} placeholder="🔍 ค้นหา..."/>
         <button style={S.btnS} onClick={()=>setSel(fl(currentList).map(s=>s.serial))}>เลือกทั้งหมด ({fl(currentList).length})</button>
         <button style={S.btnS} onClick={()=>setSel([])}>ยกเลิก</button>
       </div>
- 
+
       {/* Action Buttons ตามแต่ละ sub tab */}
       {sel.length > 0 && (
         <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
@@ -822,7 +822,7 @@ function QRMain({ sims, onPreview, bot, chat, onMarkPrinted, onUnmarkPrinted, on
           )}
         </div>
       )}
- 
+
       {/* รายการ */}
       {fl(currentList).length===0 && (
         <div style={{textAlign:"center",padding:36,color:"#8b8fa8"}}>
@@ -832,7 +832,7 @@ function QRMain({ sims, onPreview, bot, chat, onMarkPrinted, onUnmarkPrinted, on
           <div>{subTab==="waiting"?"ยังไม่มีซิมในคิวรอพิมพ์":subTab==="new"?"ยังไม่พิมพ์ QR ครบทุกซิมแล้ว":"ยังไม่มีซิมที่พิมพ์ QR แล้ว"}</div>
         </div>
       )}
- 
+
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(145px,1fr))",gap:10}}>
         {fl(currentList).map(s=>(
           <div key={s.serial} onClick={()=>tog(s.serial)}
@@ -860,7 +860,7 @@ function QRMain({ sims, onPreview, bot, chat, onMarkPrinted, onUnmarkPrinted, on
     </div>
   );
 }
- 
+
 // ===== QR CARD =====
 function QRCard({ sim, selected, onClick, onPreview, bot, chat }) {
   const qrUrl = makeQRUrl(sim.serial, sim.trackingNo, bot, chat);
@@ -875,7 +875,7 @@ function QRCard({ sim, selected, onClick, onPreview, bot, chat }) {
     </div>
   );
 }
- 
+
 // ===== QR MANAGER =====
 function QRManager({ sims, onPreview, bot, chat }) {
   const [sel, setSel] = useState([]);
@@ -883,7 +883,7 @@ function QRManager({ sims, onPreview, bot, chat }) {
   const [printing, setPrinting] = useState(false);
   const fl = sims.filter(s=>s.serial.toLowerCase().includes(q.toLowerCase())||s.trackingNo.includes(q));
   const tog = (serial) => setSel(prev=>prev.includes(serial)?prev.filter(s=>s!==serial):[...prev,serial]);
- 
+
   const doPrint = async () => {
     const picked = sims.filter(s=>sel.includes(s.serial));
     setPrinting(true);
@@ -917,7 +917,7 @@ function QRManager({ sims, onPreview, bot, chat }) {
     setTimeout(()=>{document.body.removeChild(a);URL.revokeObjectURL(url);},1000);
     setPrinting(false);
   };
- 
+
   return (
     <div style={S.card}>
       <h3 style={S.sectionTitle}>🔲 จัดการ QR Code</h3>
@@ -936,7 +936,7 @@ function QRManager({ sims, onPreview, bot, chat }) {
     </div>
   );
 }
- 
+
 // ===== SUMMARY =====
 function Summary({ sims }) {
   const sm={};
@@ -969,7 +969,7 @@ function Summary({ sims }) {
     </div>
   );
 }
- 
+
 // ===== MAIN APP =====
 function App() {
   const [sims, setSims] = useState([]);
@@ -979,7 +979,7 @@ function App() {
   const [toast, setToast] = useState(null);
   const [modal, setModal] = useState(null);
   const [loading, setLoading] = useState(true);
- 
+
   useEffect(() => {
     setLoading(true);
     loadAll().then(d => {
@@ -989,9 +989,9 @@ function App() {
       setLoading(false);
     });
   }, []);
- 
+
   const toast3 = (msg,type="ok") => { setToast({msg,type}); setTimeout(()=>setToast(null),3000); };
- 
+
   const addSim = (serial, reservedTracking = null) => {
     if (sims.find(s=>s.serial===serial)) { toast3(`⚠️ ${serial} มีอยู่แล้ว`,"warn"); return; }
     // ใช้ tracking ที่จองไว้จาก preview ถ้ามี มิฉะนั้นสร้างใหม่
@@ -999,47 +999,47 @@ function App() {
     const ns = {serial,trackingNo,scannedByCustomer:false,scannedAt:null,createdAt:Date.now(),printed:false};
     setSims(prev => {
       const u = [ns, ...prev];
-      lsSet("simtracker_sims_v1", JSON.stringify(u));
+      lsSet(K_SIMS, JSON.stringify(u));
       addSimToGS(ns);
       return u;
     });
     toast3(`✅ เพิ่มซิม ${serial} (เลขติดตาม: ${trackingNo})`);
   };
- 
+
   const delSim = (serial) => {
     if(!confirm(`ลบซิม ${serial} ?`)) return;
     setSims(prev => {
       const u = prev.filter(s=>s.serial!==serial);
-      lsSet("simtracker_sims_v1", JSON.stringify(u));
+      lsSet(K_SIMS, JSON.stringify(u));
       deleteSimFromGS(serial);
       return u;
     });
     toast3("🗑️ ลบแล้ว","warn");
   };
- 
+
   // มาร์คว่าพิมพ์ QR แล้ว
   const markPrinted = (serials) => {
     setSims(prev => {
       const u = prev.map(s => serials.includes(s.serial) ? {...s, printed:true} : s);
-      lsSet("simtracker_sims_v1", JSON.stringify(u));
+      lsSet(K_SIMS, JSON.stringify(u));
       // sync Firebase
       gsCall({ action: "saveAll", data: JSON.stringify(u) });
       return u;
     });
     toast3(`✅ บันทึกว่าพิมพ์ QR แล้ว ${serials.length} รายการ`);
   };
- 
+
   // ย้ายกลับ "ยังไม่พิมพ์"
   const unmarkPrinted = (serial) => {
     setSims(prev => {
       const u = prev.map(s => s.serial===serial ? {...s, printed:false} : s);
-      lsSet("simtracker_sims_v1", JSON.stringify(u));
+      lsSet(K_SIMS, JSON.stringify(u));
       gsCall({ action: "saveAll", data: JSON.stringify(u) });
       return u;
     });
     toast3("↩️ ย้ายกลับ ยังไม่พิมพ์ แล้ว");
   };
- 
+
   const markScanned = (serial) => {
     const now = Date.now();
     setSims(prev=>{
@@ -1049,16 +1049,16 @@ function App() {
         updateSimInGS(s.serial, {scannedByCustomer:true, scannedAt:now});
         return {...s,scannedByCustomer:true,scannedAt:now};
       });
-      lsSet("simtracker_sims_v1", JSON.stringify(u));
+      lsSet(K_SIMS, JSON.stringify(u));
       return u;
     });
     toast3("✅ อัปเดตสถานะแล้ว");
   };
- 
+
   const today = sims.filter(s=>s.scannedByCustomer&&new Date(s.scannedAt).toISOString().slice(0,10)===todayKey()).length;
   const pendingCount = sims.filter(s=>!s.scannedByCustomer).length;
   const scannedCount = sims.filter(s=>s.scannedByCustomer).length;
- 
+
   const tabs = [
     {id:"scanner",  label:"📷 ยิงซิม"},
     {id:"qr",       label:`🔲 QR Code Serial Sim (${sims.length})`},
@@ -1068,7 +1068,7 @@ function App() {
     {id:"summary",  label:"📊 สรุป"},
     {id:"settings", label:"⚙️ ตั้งค่า"},
   ];
- 
+
   if (loading) return (
     <div style={{minHeight:"100vh",background:"linear-gradient(160deg,#0a0a1a,#0f172a,#1a0a2e)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",color:"white",fontFamily:"sans-serif",gap:16}}>
       <div style={{fontSize:52}}>📶</div>
@@ -1078,12 +1078,12 @@ function App() {
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
     </div>
   );
- 
+
   return (
     <div style={S.root}>
       {toast&&<div style={{position:"fixed",top:20,right:16,background:toast.type==="warn"?"#92400e":"#064e3b",color:"white",padding:"11px 18px",borderRadius:10,zIndex:9999,fontSize:14,maxWidth:300,boxShadow:"0 4px 20px rgba(0,0,0,.5)",animation:"fadeIn 0.3s"}}>{toast.msg}</div>}
       {modal&&<CustomerModal sim={modal} onClose={()=>setModal(null)}/>}
- 
+
       <div style={S.header}>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
           <div style={{width:38,height:38,borderRadius:10,background:"linear-gradient(135deg,#4f46e5,#a78bfa)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>📶</div>
@@ -1097,11 +1097,11 @@ function App() {
           <div style={{textAlign:"center"}}><div style={{color:"#6ee7b7",fontWeight:700,fontSize:20}}>{today}</div><div style={{color:"#8b8fa8",fontSize:10}}>สแกนวันนี้</div></div>
         </div>
       </div>
- 
+
       <div style={S.tabBar}>
         {tabs.map(t=><button key={t.id} onClick={()=>setTab(t.id)} style={{...S.tab,background:tab===t.id?"rgba(79,70,229,0.3)":"transparent",color:tab===t.id?"#a78bfa":"#8b8fa8",borderBottom:tab===t.id?"2px solid #4f46e5":"2px solid transparent"}}>{t.label}</button>)}
       </div>
- 
+
       <div style={S.content}>
         {tab==="scanner"&&(
           <>
@@ -1132,7 +1132,7 @@ function App() {
     </div>
   );
 }
- 
+
 ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
 </script>
 </body>
