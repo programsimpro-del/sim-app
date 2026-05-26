@@ -476,19 +476,39 @@ function Scanner({ onScan, sims }) {
         const reader = new window.ZXing.BrowserMultiFormatReader(hints);
         readerRef.current = reader;
         setScanning(true);
-        setScanMsg("🔍 ชี้กล้องไปที่บาร์โค้ดซิม...");
+        setScanMsg("🔍 ชี้กล้องไปที่เบอร์โทร หรือบาร์โค้ดซีเรียลซิม...");
 
         reader.decodeFromVideoDevice(null, vRef.current, (result, err) => {
           if (result && !cooldownRef.current) {
-            const text = result.getText();
-            if (text && text.length >= 8) {
-              cooldownRef.current = true;
-              setLastScan(text);
-              setScanMsg("✅ สแกนได้ — กดปุ่ม เพิ่ม ➕ เพื่อบันทึก");
-              // ใส่ลงช่องกรอก ไม่เพิ่มอัตโนมัติ
+            const text = result.getText().trim();
+            if (!text || text.length < 8) return;
+
+            cooldownRef.current = true;
+
+            // จำแนกอัตโนมัติ: เบอร์ไทย = ขึ้นต้น 0, 9-10 หลัก
+            // ซีเรียลซิม = ยาวกว่า 10 หลัก หรือขึ้นต้นด้วย 8/9
+            const isPhone = /^0[689]\d{7,8}$/.test(text) || (text.length <= 10 && text.startsWith("0"));
+            const isSerial = text.length > 10 || /^[89]\d{10,}$/.test(text);
+
+            if (isPhone) {
+              setPhone(text);
+              setScanMsg("✅ ได้เบอร์: " + text + " — ชี้ต่อที่บาร์โค้ดซีเรียลซิม");
+              setLastScan("📞 เบอร์: " + text);
+              cooldownRef.current = false;
+            } else if (isSerial) {
               setManual(text);
               computePreview(text);
-              setCam(false); // ปิดกล้องหลังสแกน
+              setScanMsg("✅ ได้ซีเรียลซิม — กดปุ่ม เพิ่ม ➕ ได้เลย");
+              setLastScan("📋 ซีเรียล: " + text);
+              setCam(false);
+              setTimeout(() => { cooldownRef.current = false; }, 1500);
+            } else {
+              // ไม่แน่ใจ — ใส่ในช่องซีเรียล
+              setManual(text);
+              computePreview(text);
+              setScanMsg("✅ สแกนได้: " + text);
+              setLastScan(text);
+              setCam(false);
               setTimeout(() => { cooldownRef.current = false; }, 1500);
             }
           }
@@ -573,9 +593,11 @@ function Scanner({ onScan, sims }) {
             {scanMsg || "กำลังเตรียมกล้อง..."}
           </div>
 
-          {lastScan && (
-            <div style={{marginTop:8,padding:"10px 14px",background:"rgba(5,150,105,0.12)",border:"1px solid rgba(5,150,105,0.4)",borderRadius:10,fontSize:13,color:"#6ee7b7",textAlign:"center"}}>
-              ✅ สแกนได้แล้ว! กดปุ่ม <strong style={{color:"white"}}>เพิ่ม ➕</strong> ด้านล่างเพื่อบันทึก
+          {(lastScan || phone) && (
+            <div style={{marginTop:8,padding:"10px 14px",background:"rgba(5,150,105,0.12)",border:"1px solid rgba(5,150,105,0.4)",borderRadius:10,fontSize:12,color:"#6ee7b7"}}>
+              {phone && <div>📞 <strong style={{color:"white"}}>{phone}</strong></div>}
+              {manual && <div style={{marginTop:phone?4:0}}>📋 ซีเรียล: <strong style={{color:"white",fontFamily:"monospace",fontSize:11}}>{manual.slice(0,20)}{manual.length>20?"…":""}</strong></div>}
+              {manual && <div style={{marginTop:4,textAlign:"center",color:"#a5b4fc"}}>กดปุ่ม <strong style={{color:"white"}}>เพิ่ม ➕</strong> ได้เลย!</div>}
             </div>
           )}
         </div>
@@ -675,7 +697,7 @@ function SimList({ sims, onDelete }) {
       hints.set(window.ZXing.DecodeHintType.TRY_HARDER, true);
       const reader = new window.ZXing.BrowserMultiFormatReader(hints);
       scanReaderRef.current = reader;
-      setScanMsg("🔍 ชี้กล้องไปที่บาร์โค้ดซิม...");
+      setScanMsg("🔍 ชี้กล้องไปที่เบอร์โทร หรือบาร์โค้ดซีเรียลซิม...");
       reader.decodeFromVideoDevice(null, scanRef.current, (result, err) => {
         if (result) {
           const text = result.getText();
