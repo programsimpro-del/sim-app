@@ -437,69 +437,44 @@ function PhoneScanner({ onFound }) {
 function Scanner({ onScan, sims }) {
   const [serial, setSerial] = useState("");
   const [phone, setPhone] = useState("");
-  const [simCode, setSimCode] = useState("K"); // K หรือ L
-  const [cam, setCam] = useState(false);
-  const [scanMsg, setScanMsg] = useState("");
+  const [simCode, setSimCode] = useState("K");
+  const [camSerial, setCamSerial] = useState(false); // กล้องสแกนซีเรียล
+  const [camPhone, setCamPhone] = useState(false);   // กล้องสแกนเบอร์
+  const [scanSerialMsg, setScanSerialMsg] = useState("");
+  const [scanPhoneMsg, setScanPhoneMsg] = useState("");
   const [previewTracking, setPreviewTracking] = useState("");
   const [reservedTracking, setReservedTracking] = useState("");
-  const vRef = useRef(null);
-  const readerRef = useRef(null);
-  const canvasRef = useRef(null);
+
+  const serialReaderRef = useRef(null);
+  const phoneReaderRef = useRef(null);
+  const serialVRef = useRef(null);
+  const phoneVRef = useRef(null);
+  const phoneCanvasRef = useRef(null);
   const ocrTimerRef = useRef(null);
   const cooldownRef = useRef(false);
 
-  // คำนวณ tracking preview
   const computePreview = (val) => {
     if (!val.trim()) { setPreviewTracking(""); setReservedTracking(""); return; }
     const existing = sims.find(s => s.serial === val.trim());
     if (existing) {
       setPreviewTracking("⚠️ มีอยู่แล้ว — เลขติดตาม: " + existing.trackingNo);
-      setReservedTracking("");
-      return;
+      setReservedTracking(""); return;
     }
     const reserved = genTracking(new Set(sims.map(s => s.trackingNo)));
     setReservedTracking(reserved);
-    const displayTracking = simCode ? simCode + reserved : reserved;
-    setPreviewTracking("เลขติดตามซิม: " + displayTracking);
+    const display = simCode ? simCode + reserved : reserved;
+    setPreviewTracking("เลขติดตามซิม: " + display);
   };
 
-  const stopCam = useCallback(() => {
-    if (readerRef.current) { try { readerRef.current.reset(); } catch(e) {} readerRef.current = null; }
-    if (ocrTimerRef.current) { clearInterval(ocrTimerRef.current); ocrTimerRef.current = null; }
-    setCam(false); setScanMsg("");
-  }, []);
-
-  // OCR อ่านเบอร์โทรจาก canvas
-  const runOCR = useCallback(() => {
-    if (!vRef.current || !canvasRef.current) return;
-    const video = vRef.current;
-    const canvas = canvasRef.current;
-    // crop แค่ส่วนบน 30% ของภาพ (ที่เบอร์โทรอยู่)
-    const cropH = Math.floor(video.videoHeight * 0.35);
-    canvas.width = video.videoWidth;
-    canvas.height = cropH;
-    const ctx = canvas.getContext("2d");
-    ctx.drawImage(video, 0, 0, video.videoWidth, cropH, 0, 0, video.videoWidth, cropH);
-
-    if (!window.Tesseract) return;
-    window.Tesseract.recognize(canvas, "eng", {
-      tessedit_char_whitelist: "0123456789",
-    }).then(({ data: { text } }) => {
-      const nums = text.replace(/[^0-9]/g, "");
-      // เบอร์ไทยมี 10 หลัก ขึ้นต้น 06/08/09
-      const match = nums.match(/0[689]\d{8}/);
-      if (match && !phone) {
-        setPhone(match[0]);
-        setScanMsg(prev => prev.includes("ซีเรียล") ? prev : "📞 ได้เบอร์: " + match[0] + " | กำลังหาซีเรียล...");
-      }
-    }).catch(() => {});
-  }, [phone]);
-
+  // ===== กล้องสแกนซีเรียล =====
   useEffect(() => {
-    if (!cam) { stopCam(); return; }
-
-    const startScanner = () => {
-      if (!window.ZXing || !vRef.current) return;
+    if (!camSerial) {
+      if (serialReaderRef.current) { try { serialReaderRef.current.reset(); } catch(e) {} serialReaderRef.current = null; }
+      setScanSerialMsg(""); return;
+    }
+    setCamPhone(false); // ปิดกล้องเบอร์ถ้าเปิดอยู่
+    const start = () => {
+      if (!window.ZXing || !serialVRef.current) return;
       try {
         const hints = new Map();
         hints.set(window.ZXing.DecodeHintType.POSSIBLE_FORMATS, [
@@ -509,68 +484,84 @@ function Scanner({ onScan, sims }) {
         ]);
         hints.set(window.ZXing.DecodeHintType.TRY_HARDER, true);
         const reader = new window.ZXing.BrowserMultiFormatReader(hints);
-        readerRef.current = reader;
-        setScanMsg("🔍 ชี้กล้องไปที่บาร์โค้ดซิม (ระบบจะอ่านเบอร์อัตโนมัติ)");
-
-        reader.decodeFromVideoDevice(null, vRef.current, (result) => {
+        serialReaderRef.current = reader;
+        setScanSerialMsg("🔍 ชี้กล้องไปที่บาร์โค้ดซีเรียลซิม...");
+        reader.decodeFromVideoDevice(null, serialVRef.current, (result) => {
           if (result && !cooldownRef.current) {
             const text = result.getText().trim();
             if (text.length >= 10) {
               cooldownRef.current = true;
-              // ตรวจว่าเป็นซีเรียล (ยาวกว่า 10 หลัก)
-              if (text.length > 10) {
-                setSerial(text);
-                computePreview(text);
-                setScanMsg("✅ ได้ซีเรียล: " + text.slice(0,15) + "...");
-                // ถ้ายังไม่ได้เบอร์ รอ OCR อีกครู่แล้วปิดกล้อง
-                setTimeout(() => {
-                  stopCam();
-                  cooldownRef.current = false;
-                }, 1000);
-              }
+              setSerial(text);
+              computePreview(text);
+              setScanSerialMsg("✅ ได้ซีเรียล: " + text.slice(0,16) + (text.length>16?"...":""));
+              setCamSerial(false);
+              setTimeout(() => { cooldownRef.current = false; }, 1500);
             }
           }
         });
+      } catch(e) { setScanSerialMsg("❌ " + e.message); }
+    };
+    const loadAndStart = () => {
+      navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
+        .then(st => { if (serialVRef.current) { serialVRef.current.srcObject = st; serialVRef.current.play(); } })
+        .catch(e => { setScanSerialMsg("❌ " + e.message); setCamSerial(false); });
+      if (window.ZXing) start();
+      else { const sc = document.createElement("script"); sc.src = "https://unpkg.com/@zxing/library@latest/umd/index.min.js"; sc.onload = start; document.head.appendChild(sc); }
+    };
+    loadAndStart();
+    return () => { if (serialReaderRef.current) { try { serialReaderRef.current.reset(); } catch(e) {} serialReaderRef.current = null; } };
+  }, [camSerial]);
 
-        // OCR ทุก 1.5 วินาที เพื่ออ่านเบอร์
-        if (window.Tesseract) {
-          ocrTimerRef.current = setInterval(runOCR, 1500);
-        }
+  // ===== กล้องสแกนเบอร์ (OCR) =====
+  useEffect(() => {
+    if (!camPhone) {
+      if (phoneReaderRef.current) { try { phoneReaderRef.current.reset(); } catch(e) {} phoneReaderRef.current = null; }
+      if (ocrTimerRef.current) { clearInterval(ocrTimerRef.current); ocrTimerRef.current = null; }
+      setScanPhoneMsg(""); return;
+    }
+    setCamSerial(false); // ปิดกล้องซีเรียลถ้าเปิดอยู่
 
-      } catch(e) { setScanMsg("❌ " + e.message); }
+    const runOCR = () => {
+      if (!phoneVRef.current || !phoneCanvasRef.current) return;
+      const v = phoneVRef.current, cv = phoneCanvasRef.current;
+      cv.width = v.videoWidth; cv.height = v.videoHeight;
+      cv.getContext("2d").drawImage(v, 0, 0);
+      if (!window.Tesseract) return;
+      window.Tesseract.recognize(cv, "eng", { tessedit_char_whitelist: "0123456789" })
+        .then(({ data: { text } }) => {
+          const nums = text.replace(/\D/g,"");
+          const m = nums.match(/0[689]\d{8}/);
+          if (m) {
+            setPhone(m[0]);
+            setScanPhoneMsg("✅ ได้เบอร์: " + m[0]);
+            if (ocrTimerRef.current) { clearInterval(ocrTimerRef.current); ocrTimerRef.current = null; }
+            setCamPhone(false);
+          }
+        }).catch(() => {});
     };
 
-    // โหลด ZXing
-    const loadZXing = (cb) => {
-      if (window.ZXing) { cb(); return; }
-      const sc = document.createElement("script");
-      sc.src = "https://unpkg.com/@zxing/library@latest/umd/index.min.js";
-      sc.onload = cb; document.head.appendChild(sc);
-    };
-
-    // โหลด Tesseract
-    const loadTesseract = (cb) => {
-      if (window.Tesseract) { cb(); return; }
-      const sc = document.createElement("script");
-      sc.src = "https://unpkg.com/tesseract.js@4/dist/tesseract.min.js";
-      sc.onload = cb; document.head.appendChild(sc);
-    };
-
-    // เปิดกล้องก่อน แล้วโหลด lib
     navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
-      .then(stream => {
-        if (vRef.current) { vRef.current.srcObject = stream; vRef.current.play(); }
-        loadZXing(() => loadTesseract(() => startScanner()));
+      .then(st => {
+        if (phoneVRef.current) { phoneVRef.current.srcObject = st; phoneVRef.current.play(); }
+        setScanPhoneMsg("🔍 ชี้กล้องไปที่เบอร์โทรบนซิม...");
+        const loadTesseract = (cb) => {
+          if (window.Tesseract) { cb(); return; }
+          const sc = document.createElement("script");
+          sc.src = "https://unpkg.com/tesseract.js@4/dist/tesseract.min.js";
+          sc.onload = cb; document.head.appendChild(sc);
+        };
+        loadTesseract(() => { ocrTimerRef.current = setInterval(runOCR, 1500); });
       })
-      .catch(e => { setScanMsg("❌ " + e.message); setCam(false); });
+      .catch(e => { setScanPhoneMsg("❌ " + e.message); setCamPhone(false); });
 
-    return () => stopCam();
-  }, [cam]);
+    return () => {
+      if (ocrTimerRef.current) { clearInterval(ocrTimerRef.current); ocrTimerRef.current = null; }
+    };
+  }, [camPhone]);
 
   const go = () => {
     if (serial.trim()) {
-      // ส่ง simCode ไปด้วยเพื่อให้ addSim ใช้ prefix
-      onScan(serial.trim(), reservedTracking || null, phone.trim() || null, simCode);
+      onScan(serial.trim(), reservedTracking || null, phone.trim() || null, simCode || null);
       setSerial(""); setPhone(""); setPreviewTracking(""); setReservedTracking("");
     }
   };
@@ -579,96 +570,108 @@ function Scanner({ onScan, sims }) {
     <div style={S.card}>
       <h3 style={S.sectionTitle}>📷 ยิงเลขซีเรียลซิม</h3>
 
-      {/* เลือกโค้ดซิม K หรือ L */}
-      <div style={{display:"flex",gap:8,marginBottom:12,alignItems:"center"}}>
+      {/* เลือกโค้ด K / L */}
+      <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:14}}>
         <span style={{color:"#94a3b8",fontSize:13,fontWeight:600}}>โค้ดซิม:</span>
         {["K","L"].map(code=>(
           <button key={code} onClick={()=>setSimCode(code)}
-            style={{
-              padding:"8px 24px",
-              border:`2px solid ${simCode===code?"#4f46e5":"rgba(255,255,255,0.15)"}`,
-              borderRadius:10,
-              background:simCode===code?"linear-gradient(135deg,#4f46e5,#7c3aed)":"rgba(255,255,255,0.06)",
+            style={{padding:"8px 24px",border:"none",borderRadius:10,cursor:"pointer",fontFamily:"inherit",fontWeight:700,fontSize:15,
+              background:simCode===code?(code==="K"?"linear-gradient(135deg,#4f46e5,#7c3aed)":"linear-gradient(135deg,#059669,#10b981)"):"rgba(255,255,255,0.06)",
               color:simCode===code?"white":"#8b8fa8",
-              fontSize:16,fontWeight:800,cursor:"pointer",fontFamily:"inherit",
-              boxShadow:simCode===code?"0 4px 12px rgba(79,70,229,0.4)":"none",
-              transition:"all 0.2s"
-            }}>
-            {code}
-          </button>
+              outline:simCode===code?`2px solid ${code==="K"?"#a78bfa":"#6ee7b7"}`:"none",
+            }}>{code}</button>
         ))}
         <span style={{color:simCode==="K"?"#a78bfa":"#6ee7b7",fontSize:12,fontWeight:600,marginLeft:4}}>
-          ซิมหมายเลขจะขึ้นต้นด้วย {simCode}-
+          เลือก: {simCode}
         </span>
       </div>
 
-      <button style={cam ? S.btnDO : S.btnS} onClick={() => setCam(v => !v)}>
-        {cam ? "🔴 ปิดกล้อง" : "📷 เปิดกล้องสแกนบาร์โค้ด"}
-      </button>
-
-      {cam && (
-        <div style={{marginTop:12}}>
-          <div style={{position:"relative",width:"100%",maxWidth:420}}>
-            <video ref={vRef} style={{width:"100%",borderRadius:12,border:"2px solid #4f46e5",display:"block"}} playsInline muted/>
-            {/* เส้นสแกนกลาง */}
-            <div style={{position:"absolute",top:"50%",left:"8%",right:"8%",height:2,background:"rgba(99,102,241,0.8)",transform:"translateY(-50%)",boxShadow:"0 0 8px rgba(99,102,241,0.8)"}}/>
-            {/* มุมกรอบ */}
-            {[{top:8,left:8,borderTop:"3px solid #a78bfa",borderLeft:"3px solid #a78bfa"},
-              {top:8,right:8,borderTop:"3px solid #a78bfa",borderRight:"3px solid #a78bfa"},
-              {bottom:8,left:8,borderBottom:"3px solid #a78bfa",borderLeft:"3px solid #a78bfa"},
-              {bottom:8,right:8,borderBottom:"3px solid #a78bfa",borderRight:"3px solid #a78bfa"}
-            ].map((st,i)=><div key={i} style={{position:"absolute",width:20,height:20,...st}}/>)}
-            {/* canvas ซ่อนสำหรับ OCR */}
-            <canvas ref={canvasRef} style={{display:"none"}}/>
-          </div>
-          <div style={{marginTop:8,padding:"8px 14px",borderRadius:10,textAlign:"center",fontSize:13,fontWeight:600,
-            background:scanMsg.startsWith("✅")?"rgba(5,150,105,0.15)":"rgba(79,70,229,0.12)",
-            border:`1px solid ${scanMsg.startsWith("✅")?"rgba(5,150,105,0.4)":"rgba(99,102,241,0.3)"}`,
-            color:scanMsg.startsWith("✅")?"#6ee7b7":"#a5b4fc"}}>
-            {scanMsg||"กำลังเตรียมกล้อง..."}
-          </div>
+      {/* ===== กล้องสแกนเบอร์โทร ===== */}
+      <div style={{background:"rgba(16,185,129,0.06)",border:"1px solid rgba(16,185,129,0.2)",borderRadius:12,padding:"12px 14px",marginBottom:10}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+          <div style={{color:"#6ee7b7",fontSize:13,fontWeight:700}}>📞 เบอร์โทร</div>
+          <button onClick={()=>setCamPhone(v=>!v)}
+            style={{...camPhone?S.btnDO:S.btnS,fontSize:12,padding:"6px 14px"}}>
+            {camPhone?"🔴 ปิดกล้อง":"📷 สแกนเบอร์"}
+          </button>
         </div>
-      )}
 
-      {/* ช่องเบอร์โทร (วงเหลือง) */}
-      <div style={{display:"flex",gap:8,marginTop:12,alignItems:"center"}}>
-        <div style={{flex:1,position:"relative"}}>
-          <div style={{color:"#fbbf24",fontSize:11,fontWeight:700,marginBottom:4}}>📞 เบอร์โทร</div>
-          <input style={{...S.input,borderColor:phone?"rgba(16,185,129,0.5)":"rgba(251,191,36,0.4)",background:phone?"rgba(16,185,129,0.08)":"rgba(251,191,36,0.05)"}}
+        {camPhone && (
+          <div style={{marginBottom:8}}>
+            <div style={{position:"relative",width:"100%",maxWidth:400}}>
+              <video ref={phoneVRef} style={{width:"100%",borderRadius:10,border:"2px solid #10b981",display:"block"}} playsInline muted/>
+              <div style={{position:"absolute",top:"40%",left:"5%",right:"5%",height:2,background:"rgba(16,185,129,0.8)",transform:"translateY(-50%)"}}/>
+              <canvas ref={phoneCanvasRef} style={{display:"none"}}/>
+            </div>
+            <div style={{marginTop:6,padding:"6px 12px",borderRadius:8,fontSize:12,fontWeight:600,textAlign:"center",
+              background:scanPhoneMsg.startsWith("✅")?"rgba(5,150,105,0.15)":"rgba(16,185,129,0.08)",
+              color:scanPhoneMsg.startsWith("✅")?"#6ee7b7":"#a5b4fc"}}>
+              {scanPhoneMsg||"กำลังเตรียมกล้อง..."}
+            </div>
+          </div>
+        )}
+
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <input style={{...S.input,flex:1,borderColor:phone?"rgba(16,185,129,0.5)":"rgba(16,185,129,0.2)"}}
             value={phone} onChange={e=>setPhone(e.target.value.replace(/[^0-9]/g,""))}
-            placeholder="ได้อัตโนมัติจากกล้อง หรือกรอกเอง" maxLength={10} inputMode="numeric"/>
-          {phone && <div style={{color:"#6ee7b7",fontSize:11,marginTop:3}}>✅ {phone}</div>}
-          {!phone && serial && <div style={{color:"#f59e0b",fontSize:11,marginTop:3}}>📞 รับเบอร์โทรหลังลงทะเบียนซิม</div>}
+            placeholder="เบอร์โทร (OCR อัตโนมัติ หรือกรอกเอง)"
+            maxLength={10} inputMode="numeric"/>
+          {phone && <button onClick={()=>setPhone("")} style={{...S.btnD,padding:"8px 10px"}}>✕</button>}
         </div>
-        {phone && <button onClick={()=>setPhone("")} style={{...S.btnD,alignSelf:"flex-end",marginBottom:2}}>✕</button>}
+        {phone && <div style={{color:"#6ee7b7",fontSize:12,marginTop:4}}>✅ {phone}</div>}
+        {!phone && serial && <div style={{color:"#f59e0b",fontSize:11,marginTop:4}}>📞 รับเบอร์โทรหลังลงทะเบียนซิม</div>}
       </div>
 
-      {/* ช่องซีเรียลซิม + ปุ่มเพิ่ม (วงแดง) */}
-      <div style={{display:"flex",gap:8,marginTop:10}}>
-        <div style={{flex:1}}>
-          <div style={{color:"#a5b4fc",fontSize:11,fontWeight:700,marginBottom:4}}>📋 เลขซีเรียลซิม</div>
-          <input style={{...S.input,borderColor:serial?"rgba(99,102,241,0.6)":"rgba(99,102,241,0.2)"}}
-            value={serial}
-            onChange={e=>{setSerial(e.target.value);computePreview(e.target.value);}}
-            placeholder="ได้อัตโนมัติจากกล้อง หรือกรอกเอง"
-            onKeyDown={e=>e.key==="Enter"&&go()}/>
+      {/* ===== กล้องสแกนซีเรียลซิม ===== */}
+      <div style={{background:"rgba(79,70,229,0.06)",border:"1px solid rgba(79,70,229,0.2)",borderRadius:12,padding:"12px 14px",marginBottom:10}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+          <div style={{color:"#a5b4fc",fontSize:13,fontWeight:700}}>📋 เลขซีเรียลซิม</div>
+          <button onClick={()=>setCamSerial(v=>!v)}
+            style={{...camSerial?S.btnDO:S.btnS,fontSize:12,padding:"6px 14px"}}>
+            {camSerial?"🔴 ปิดกล้อง":"📷 สแกนซีเรียล"}
+          </button>
         </div>
-        <button style={{...S.btnP,alignSelf:"flex-end",opacity:serial.trim()?1:0.4}} onClick={go} disabled={!serial.trim()}>
-          เพิ่ม ➕
-        </button>
+
+        {camSerial && (
+          <div style={{marginBottom:8}}>
+            <div style={{position:"relative",width:"100%",maxWidth:400}}>
+              <video ref={serialVRef} style={{width:"100%",borderRadius:10,border:"2px solid #4f46e5",display:"block"}} playsInline muted/>
+              <div style={{position:"absolute",top:"50%",left:"8%",right:"8%",height:2,background:"rgba(99,102,241,0.8)",transform:"translateY(-50%)",boxShadow:"0 0 8px rgba(99,102,241,0.8)"}}/>
+              {[{top:8,left:8,borderTop:"3px solid #a78bfa",borderLeft:"3px solid #a78bfa"},
+                {top:8,right:8,borderTop:"3px solid #a78bfa",borderRight:"3px solid #a78bfa"},
+                {bottom:8,left:8,borderBottom:"3px solid #a78bfa",borderLeft:"3px solid #a78bfa"},
+                {bottom:8,right:8,borderBottom:"3px solid #a78bfa",borderRight:"3px solid #a78bfa"}
+              ].map((st,i)=><div key={i} style={{position:"absolute",width:20,height:20,...st}}/>)}
+            </div>
+            <div style={{marginTop:6,padding:"6px 12px",borderRadius:8,fontSize:12,fontWeight:600,textAlign:"center",
+              background:scanSerialMsg.startsWith("✅")?"rgba(5,150,105,0.15)":"rgba(79,70,229,0.12)",
+              color:scanSerialMsg.startsWith("✅")?"#6ee7b7":"#a5b4fc"}}>
+              {scanSerialMsg||"กำลังเตรียมกล้อง..."}
+            </div>
+          </div>
+        )}
+
+        <div style={{display:"flex",gap:8}}>
+          <input style={{...S.input,flex:1,borderColor:serial?"rgba(99,102,241,0.6)":"rgba(99,102,241,0.2)"}}
+            value={serial} onChange={e=>{setSerial(e.target.value);computePreview(e.target.value);}}
+            placeholder="สแกนหรือกรอกเลขซีเรียลซิม"
+            onKeyDown={e=>e.key==="Enter"&&go()}/>
+          <button style={{...S.btnP,opacity:serial.trim()?1:0.4}} onClick={go} disabled={!serial.trim()}>
+            เพิ่ม ➕
+          </button>
+        </div>
       </div>
 
       {/* Preview เลขติดตาม */}
       {previewTracking && (
-        <div style={{marginTop:10,padding:"10px 16px",
+        <div style={{padding:"10px 16px",
           background:previewTracking.startsWith("⚠️")?"rgba(245,158,11,0.12)":"rgba(79,70,229,0.15)",
           border:`1px solid ${previewTracking.startsWith("⚠️")?"rgba(245,158,11,0.4)":"rgba(167,139,250,0.5)"}`,
           borderRadius:12,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
           <span style={{color:"#94a3b8",fontSize:12}}>
-            {previewTracking.startsWith("⚠️")?"⚠️ ซีเรียลซ้ำ":
-              simCode ? `เลขติดตามซิม (โค้ด ${simCode}):` : "เลขติดตามซิมที่จะได้รับ:"}
+            {previewTracking.startsWith("⚠️")?"⚠️ ซีเรียลซ้ำ":`เลขติดตามซิม (โค้ด ${simCode}):`}
           </span>
-          <span style={{color:previewTracking.startsWith("⚠️")?"#fbbf24":"#a78bfa",fontSize:previewTracking.startsWith("⚠️")?13:26,fontWeight:800,letterSpacing:2}}>
+          <span style={{color:previewTracking.startsWith("⚠️")?"#fbbf24":"#a78bfa",fontSize:24,fontWeight:800,letterSpacing:2}}>
             {previewTracking.startsWith("⚠️")?previewTracking.replace("⚠️ มีอยู่แล้ว — เลขติดตาม: ",""):previewTracking.replace("เลขติดตามซิม: ","")}
           </span>
         </div>
