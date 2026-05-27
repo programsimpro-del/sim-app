@@ -437,6 +437,7 @@ function PhoneScanner({ onFound }) {
 function Scanner({ onScan, sims }) {
   const [serial, setSerial] = useState("");
   const [phone, setPhone] = useState("");
+  const [simCode, setSimCode] = useState("K"); // K หรือ L
   const [cam, setCam] = useState(false);
   const [scanMsg, setScanMsg] = useState("");
   const [previewTracking, setPreviewTracking] = useState("");
@@ -458,7 +459,8 @@ function Scanner({ onScan, sims }) {
     }
     const reserved = genTracking(new Set(sims.map(s => s.trackingNo)));
     setReservedTracking(reserved);
-    setPreviewTracking("เลขติดตามซิม: " + reserved);
+    const displayTracking = simCode ? simCode + reserved : reserved;
+    setPreviewTracking("เลขติดตามซิม: " + displayTracking);
   };
 
   const stopCam = useCallback(() => {
@@ -567,7 +569,8 @@ function Scanner({ onScan, sims }) {
 
   const go = () => {
     if (serial.trim()) {
-      onScan(serial.trim(), reservedTracking || null, phone.trim() || null);
+      // ส่ง simCode ไปด้วยเพื่อให้ addSim ใช้ prefix
+      onScan(serial.trim(), reservedTracking || null, phone.trim() || null, simCode);
       setSerial(""); setPhone(""); setPreviewTracking(""); setReservedTracking("");
     }
   };
@@ -575,6 +578,49 @@ function Scanner({ onScan, sims }) {
   return (
     <div style={S.card}>
       <h3 style={S.sectionTitle}>📷 ยิงเลขซีเรียลซิม</h3>
+
+      {/* เลือกโค้ดซิม K หรือ L */}
+      <div style={{display:"flex",gap:8,marginBottom:12,alignItems:"center"}}>
+        <span style={{color:"#94a3b8",fontSize:13,fontWeight:600}}>โค้ดซิม:</span>
+        {["K","L"].map(code=>(
+          <button key={code} onClick={()=>setSimCode(code)}
+            style={{
+              padding:"8px 24px",
+              border:`2px solid ${simCode===code?"#4f46e5":"rgba(255,255,255,0.15)"}`,
+              borderRadius:10,
+              background:simCode===code?"linear-gradient(135deg,#4f46e5,#7c3aed)":"rgba(255,255,255,0.06)",
+              color:simCode===code?"white":"#8b8fa8",
+              fontSize:16,fontWeight:800,cursor:"pointer",fontFamily:"inherit",
+              boxShadow:simCode===code?"0 4px 12px rgba(79,70,229,0.4)":"none",
+              transition:"all 0.2s"
+            }}>
+            {code}
+          </button>
+        ))}
+        <span style={{color:simCode==="K"?"#a78bfa":"#6ee7b7",fontSize:12,fontWeight:600,marginLeft:4}}>
+          ซิมหมายเลขจะขึ้นต้นด้วย {simCode}-
+        </span>
+      </div>
+
+      {/* ปุ่มเลือกโค้ด K / L */}
+      <div style={{display:"flex",gap:8,marginBottom:12}}>
+        <div style={{color:"#94a3b8",fontSize:12,alignSelf:"center",whiteSpace:"nowrap"}}>โค้ดซิม:</div>
+        {["K","L",""].map(code=>(
+          <button key={code||"none"} onClick={()=>setSimCode(code)}
+            style={{padding:"8px 20px",border:"none",borderRadius:10,cursor:"pointer",fontFamily:"inherit",
+              fontWeight:700,fontSize:14,
+              background:simCode===code
+                ? (code==="K"?"linear-gradient(135deg,#4f46e5,#7c3aed)"
+                  :code==="L"?"linear-gradient(135deg,#059669,#10b981)"
+                  :"rgba(255,255,255,0.1)")
+                :"rgba(255,255,255,0.06)",
+              color:simCode===code?"white":"#8b8fa8",
+              border:simCode===code?"none":"1px solid rgba(255,255,255,0.1)",
+            }}>
+            {code||"ไม่มีโค้ด"}
+          </button>
+        ))}
+      </div>
 
       <button style={cam ? S.btnDO : S.btnS} onClick={() => setCam(v => !v)}>
         {cam ? "🔴 ปิดกล้อง" : "📷 เปิดกล้องสแกนบาร์โค้ด"}
@@ -639,7 +685,8 @@ function Scanner({ onScan, sims }) {
           border:`1px solid ${previewTracking.startsWith("⚠️")?"rgba(245,158,11,0.4)":"rgba(167,139,250,0.5)"}`,
           borderRadius:12,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
           <span style={{color:"#94a3b8",fontSize:12}}>
-            {previewTracking.startsWith("⚠️")?"⚠️ ซีเรียลซ้ำ":"เลขติดตามซิมที่จะได้รับ:"}
+            {previewTracking.startsWith("⚠️")?"⚠️ ซีเรียลซ้ำ":
+              simCode ? `เลขติดตามซิม (โค้ด ${simCode}):` : "เลขติดตามซิมที่จะได้รับ:"}
           </span>
           <span style={{color:previewTracking.startsWith("⚠️")?"#fbbf24":"#a78bfa",fontSize:previewTracking.startsWith("⚠️")?13:26,fontWeight:800,letterSpacing:2}}>
             {previewTracking.startsWith("⚠️")?previewTracking.replace("⚠️ มีอยู่แล้ว — เลขติดตาม: ",""):previewTracking.replace("เลขติดตามซิม: ","")}
@@ -973,7 +1020,10 @@ function QRMain({ sims, onPreview, bot, chat, onMarkPrinted, onUnmarkPrinted, on
               <QR text={makeQRUrl(s.serial,s.trackingNo,bot,chat)} size={110}/>
             </div>
             {s.phone ? <div style={{color:"#059669",fontSize:11,fontWeight:700,marginTop:3}}>📞 {s.phone}</div> : <div style={{color:"#d97706",fontSize:10,fontWeight:600,marginTop:3}}>📞 รับเบอร์หลังลงทะเบียน</div>}
-            <div style={{color:"#4f46e5",fontSize:11,fontWeight:700,marginTop:2}}>ซิมหมายเลข: {s.trackingNo}</div>
+            <div style={{display:"flex",alignItems:"center",gap:4,marginTop:2}}>
+              {s.simCode && <span style={{background:s.simCode==="K"?"#4f46e5":"#059669",color:"white",fontSize:10,fontWeight:800,borderRadius:4,padding:"1px 5px"}}>{s.simCode}</span>}
+              <span style={{color:"#4f46e5",fontSize:11,fontWeight:700}}>ซิมหมายเลข: {s.trackingNo}</span>
+            </div>
             <div style={{color:"#555",fontSize:9,marginTop:2,lineHeight:1.4}}>สแกน QR Code เพื่อรับบาร์โค้ดซิมและทำการลงทะเบียนซิมที่นี่</div>
             <div style={{color:"#dc2626",fontSize:9,fontWeight:800,marginTop:2}}>⚠️ ต้องสแกนลงทะเบียนผ่าน QR Code นี้เท่านั้น</div>
             {subTab==="waiting" && <div style={{marginTop:4,fontSize:9,color:"#fbbf24",fontWeight:700}}>🕐 รอพิมพ์</div>}
@@ -997,7 +1047,10 @@ function QRCard({ sim, selected, onClick, onPreview, bot, chat }) {
       <div onClick={onClick} style={{cursor:"pointer"}}>
         <div style={{background:"#fff",borderRadius:8,padding:5,display:"inline-block",marginBottom:5}}><QR text={qrUrl} size={110}/></div>
         {sim.phone ? <div style={{color:"#059669",fontSize:12,fontWeight:700,marginTop:4}}>📞 {sim.phone}</div> : <div style={{color:"#d97706",fontSize:11,fontWeight:600,marginTop:4}}>📞 รับเบอร์โทรหลังลงทะเบียนซิม</div>}
-        <div style={{color:"#4f46e5",fontSize:11,fontWeight:700,marginTop:2}}>ซิมหมายเลข: {sim.trackingNo}</div>
+        <div style={{display:"flex",alignItems:"center",gap:4,marginTop:2}}>
+          {sim.simCode && <span style={{background:sim.simCode==="K"?"#4f46e5":"#059669",color:"white",fontSize:11,fontWeight:800,borderRadius:4,padding:"2px 7px"}}>{sim.simCode}</span>}
+          <span style={{color:"#4f46e5",fontSize:11,fontWeight:700}}>ซิมหมายเลข: {sim.trackingNo}</span>
+        </div>
         <div style={{color:"#555",fontSize:9,marginTop:3,lineHeight:1.4}}>สแกน QR Code เพื่อรับบาร์โค้ดซิมและทำการลงทะเบียนซิมที่นี่</div>
         <div style={{color:"#dc2626",fontSize:9,fontWeight:800,marginTop:2}}>⚠️ ต้องสแกนลงทะเบียนผ่าน QR Code นี้เท่านั้น</div>
       </div>
@@ -1122,10 +1175,12 @@ function App() {
 
   const toast3 = (msg,type="ok") => { setToast({msg,type}); setTimeout(()=>setToast(null),3000); };
 
-  const addSim = (serial, reservedTracking = null, phone = null) => {
+  const addSim = (serial, reservedTracking = null, phone = null, simCode = "") => {
     if (sims.find(s=>s.serial===serial)) { toast3(`⚠️ ${serial} มีอยู่แล้ว`,"warn"); return; }
-    const trackingNo = reservedTracking || genTracking(new Set(sims.map(s=>s.trackingNo)));
-    const ns = {serial,trackingNo,phone:phone||"",scannedByCustomer:false,scannedAt:null,createdAt:Date.now(),printed:false};
+    const rawTracking = reservedTracking || genTracking(new Set(sims.map(s=>s.trackingNo)));
+    // เพิ่ม prefix K หรือ L ใน trackingNo
+    const trackingNo = simCode ? `${simCode}${rawTracking}` : rawTracking;
+    const ns = {serial,trackingNo,phone:phone||"",simCode:simCode||"",scannedByCustomer:false,scannedAt:null,createdAt:Date.now(),printed:false};
     setSims(prev => {
       const u = [ns, ...prev];
       lsSet(K_SIMS, JSON.stringify(u));
