@@ -120,10 +120,11 @@ const tgSend = (bot, chat, text) => {
 };
 
 const GITHUB_BASE = "https://programsimpro-del.github.io/Sim";
-const makeQRUrl = (serial, trackingNo, bot="", chat="") => {
+const makeQRUrl = (serial, trackingNo, bot="", chat="", phone="") => {
   let url = `${GITHUB_BASE}/?s=${encodeURIComponent(serial)}&t=${encodeURIComponent(trackingNo)}`;
-  if (bot)  url += `&tgbot=${encodeURIComponent(bot)}`;
-  if (chat) url += `&tgchat=${encodeURIComponent(chat)}`;
+  if (bot)   url += `&tgbot=${encodeURIComponent(bot)}`;
+  if (chat)  url += `&tgchat=${encodeURIComponent(chat)}`;
+  if (phone) url += `&phone=${encodeURIComponent(phone)}`;
   return url;
 };
 
@@ -818,7 +819,7 @@ function QRMain({ sims, onPreview, bot, chat, onMarkPrinted, onUnmarkPrinted, on
     // สร้าง QR dataURLs
     const qrDataUrls = {};
     for (const s of toPrint) {
-      const url = makeQRUrl(s.serial, s.trackingNo, bot, chat);
+      const url = makeQRUrl(s.serial, s.trackingNo, bot, chat, s.phone||"");
       await new Promise(resolve => {
         const div = document.createElement("div");
         div.style.cssText = "position:absolute;left:-9999px;top:-9999px";
@@ -951,7 +952,7 @@ function QRMain({ sims, onPreview, bot, chat, onMarkPrinted, onUnmarkPrinted, on
 
 // ===== QR CARD =====
 function QRCard({ sim, selected, onClick, onPreview, bot, chat }) {
-  const qrUrl = makeQRUrl(sim.serial, sim.trackingNo, bot, chat);
+  const qrUrl = makeQRUrl(sim.serial, sim.trackingNo, bot, chat, sim.phone||"");
   return (
     <div style={{background:selected?"rgba(79,70,229,0.2)":"rgba(255,255,255,0.04)",border:`2px solid ${selected?"#4f46e5":"rgba(255,255,255,0.08)"}`,borderRadius:12,padding:10,textAlign:"center"}}>
       <div onClick={onClick} style={{cursor:"pointer"}}>
@@ -979,7 +980,7 @@ function QRManager({ sims, onPreview, bot, chat }) {
     setPrinting(true);
     const qrDataUrls = {};
     for (const s of picked) {
-      const url = makeQRUrl(s.serial, s.trackingNo, bot, chat);
+      const url = makeQRUrl(s.serial, s.trackingNo, bot, chat, s.phone||"");
       await new Promise(resolve => {
         const div = document.createElement("div");
         div.style.cssText = "position:absolute;left:-9999px;top:-9999px";
@@ -1134,7 +1135,8 @@ function App() {
     setSims(prev=>{
       const u=prev.map(s=>{
         if(s.serial!==serial) return s;
-        tgSend(botToken,chatId,`✅ ลูกค้าสแกน QR Code แล้ว!\n📋 เลขซีเรียลซิม: ${s.serial}\n🔢 เลขติดตาม: ${s.trackingNo}\n⏰ เวลา: ${new Date(now).toLocaleString("th-TH")}`);
+        const phoneInfo = s.phone ? `\n📞 เบอร์โทร: ${s.phone}` : `\n📞 เบอร์โทร: รับหลังลงทะเบียนซิม`;
+        tgSend(botToken,chatId,`🔔 ลูกค้าสแกน QR Code แล้ว!\n📋 เลขซีเรียลซิม: ${s.serial}${phoneInfo}\n🔢 เลขติดตาม: ${s.trackingNo}\n⏰ เวลา: ${new Date(now).toLocaleString("th-TH")}\n\n✅ กรุณาอัปเดตสถานะในแอพ`);
         updateSimInGS(s.serial, {scannedByCustomer:true, scannedAt:now});
         return {...s,scannedByCustomer:true,scannedAt:now};
       });
