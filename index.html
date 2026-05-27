@@ -652,7 +652,43 @@ function Scanner({ onScan, sims }) {
 
 
 // ===== SIM LIST =====
-function SimList({ sims, onDelete }) {
+// ===== EDIT PHONE INLINE =====
+function EditPhone({ sim, onUpdate }) {
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState(sim.phone || "");
+
+  const save = () => {
+    onUpdate(sim.serial, val.trim());
+    setEditing(false);
+  };
+
+  if (editing) return (
+    <div style={{display:"flex",gap:4,alignItems:"center"}}>
+      <input
+        style={{...S.input,width:110,padding:"4px 8px",fontSize:12}}
+        value={val}
+        onChange={e=>setVal(e.target.value.replace(/[^0-9]/g,""))}
+        maxLength={10}
+        inputMode="numeric"
+        autoFocus
+        onKeyDown={e=>{if(e.key==="Enter")save();if(e.key==="Escape")setEditing(false);}}
+      />
+      <button onClick={save} style={{...S.btnP,padding:"4px 8px",fontSize:11}}>✓</button>
+      <button onClick={()=>setEditing(false)} style={{...S.btnS,padding:"4px 6px",fontSize:11}}>✕</button>
+    </div>
+  );
+
+  return (
+    <div onClick={()=>setEditing(true)} style={{cursor:"pointer",minWidth:90}}>
+      {sim.phone
+        ? <span style={{color:"#6ee7b7",fontSize:12,fontWeight:600}}>{sim.phone}</span>
+        : <span style={{color:"#6b7280",fontSize:11,fontStyle:"italic"}}>+ เพิ่มเบอร์</span>
+      }
+    </div>
+  );
+}
+
+function SimList({ sims, onDelete, onUpdatePhone }) {
   const [q,setQ]=useState(""); const [pg,setPg]=useState(1); const pp=15;
   const [scanCam, setScanCam] = useState(false);
   const [scanMsg, setScanMsg] = useState("");
@@ -761,13 +797,16 @@ function SimList({ sims, onDelete }) {
       {pd.length===0&&<div style={{color:"#8b8fa8",textAlign:"center",padding:32}}>ยังไม่มีข้อมูล</div>}
       <div style={{overflowX:"auto"}}>
         <table style={S.table}>
-          <thead><tr>{["#","เลขซีเรียล","เลขติดตาม","สถานะ","วันที่เพิ่ม","ลบ"].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
+          <thead><tr>{["#","เลขซีเรียล","เลขติดตาม","📞 เบอร์โทร","สถานะ","วันที่เพิ่ม","ลบ"].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
           <tbody>
             {pd.map((s,i)=>(
               <tr key={s.serial} style={{background:i%2===0?"rgba(255,255,255,0.02)":"transparent"}}>
                 <td style={S.td}>{(pg-1)*pp+i+1}</td>
                 <td style={{...S.td,fontFamily:"monospace",fontSize:12}}>{s.serial}</td>
                 <td style={{...S.td,color:"#a78bfa",fontWeight:700}}>{s.trackingNo}</td>
+                <td style={S.td}>
+                  <EditPhone sim={s} onUpdate={onUpdatePhone}/>
+                </td>
                 <td style={S.td}><span style={{padding:"2px 8px",borderRadius:99,fontSize:11,background:s.scannedByCustomer?"#064e3b":"#1e1b4b",color:s.scannedByCustomer?"#6ee7b7":"#a5b4fc"}}>{s.scannedByCustomer?"✓ ลงทะเบียนแล้ว":"รอสแกน"}</span></td>
                 <td style={{...S.td,fontSize:11,color:"#8b8fa8"}}>{fmtDate(s.createdAt)}</td>
                 <td style={S.td}><button onClick={()=>onDelete(s.serial)} style={S.btnD}>🗑</button></td>
@@ -1107,6 +1146,17 @@ function App() {
     toast3("🗑️ ลบแล้ว","warn");
   };
 
+  // อัปเดตเบอร์โทร
+  const updatePhone = (serial, phone) => {
+    setSims(prev => {
+      const u = prev.map(s => s.serial===serial ? {...s, phone} : s);
+      lsSet(K_SIMS, JSON.stringify(u));
+      updateSimInGS(serial, {phone});
+      return u;
+    });
+    toast3(phone ? `✅ บันทึกเบอร์ ${phone} แล้ว` : "✅ ลบเบอร์แล้ว");
+  };
+
   // มาร์คว่าพิมพ์ QR แล้ว
   const markPrinted = (serials) => {
     setSims(prev => {
@@ -1216,7 +1266,7 @@ function App() {
         {tab==="qr"&&<QRMain sims={sims} onPreview={s=>setModal(s)} bot={botToken} chat={chatId} onMarkPrinted={markPrinted} onUnmarkPrinted={unmarkPrinted} onDeleteSim={delSim}/>}
         {tab==="pending"&&<PendingTab sims={sims} onPreview={s=>setModal(s)} onMarkScanned={markScanned}/>}
         {tab==="scanned"&&<ScannedTab sims={sims}/>}
-        {tab==="list"&&<SimList sims={sims} onDelete={delSim}/>}
+        {tab==="list"&&<SimList sims={sims} onDelete={delSim} onUpdatePhone={updatePhone}/>}
         {tab==="summary"&&<Summary sims={sims}/>}
         {tab==="settings"&&<Settings botToken={botToken} chatId={chatId} setBotToken={setBotToken} setChatId={setChatId} onSave={()=>toast3("✅ บันทึกแล้ว")}/>}
       </div>
