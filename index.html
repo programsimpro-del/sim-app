@@ -605,19 +605,18 @@ function Scanner({ onScan, sims }) {
       {/* ปุ่มเลือกโค้ด K / L */}
       <div style={{display:"flex",gap:8,marginBottom:12}}>
         <div style={{color:"#94a3b8",fontSize:12,alignSelf:"center",whiteSpace:"nowrap"}}>โค้ดซิม:</div>
-        {["K","L",""].map(code=>(
-          <button key={code||"none"} onClick={()=>setSimCode(code)}
-            style={{padding:"8px 20px",border:"none",borderRadius:10,cursor:"pointer",fontFamily:"inherit",
-              fontWeight:700,fontSize:14,
+        {["K","L"].map(code=>(
+          <button key={code} onClick={()=>setSimCode(code)}
+            style={{padding:"8px 24px",border:"none",borderRadius:10,cursor:"pointer",fontFamily:"inherit",
+              fontWeight:700,fontSize:15,
               background:simCode===code
                 ? (code==="K"?"linear-gradient(135deg,#4f46e5,#7c3aed)"
-                  :code==="L"?"linear-gradient(135deg,#059669,#10b981)"
-                  :"rgba(255,255,255,0.1)")
+                  :"linear-gradient(135deg,#059669,#10b981)")
                 :"rgba(255,255,255,0.06)",
               color:simCode===code?"white":"#8b8fa8",
               border:simCode===code?"none":"1px solid rgba(255,255,255,0.1)",
             }}>
-            {code||"ไม่มีโค้ด"}
+            {code}
           </button>
         ))}
       </div>
