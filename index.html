@@ -907,9 +907,9 @@ function QRMain({ sims, onPreview, bot, chat, onMarkPrinted, onUnmarkPrinted, on
 
     const cards = toPrint.map(s => {
       const d = qrDataUrls[s.serial] || "";
-      return `<div class="card">${d?`<img src="${d}" width="160" height="160"/>`:`<div style="width:160px;height:160px;background:#eee;display:flex;align-items:center;justify-content:center">QR</div>`}${s.phone ? `<div class="phone">📞 เบอร์: ${s.phone}</div>` : `<div class="phone-wait">📞 รับเบอร์โทรหลังลงทะเบียนซิม</div>`}<div class="trk">ซิมหมายเลข: ${s.trackingNo}</div><div class="lbl">สแกน QR Code เพื่อรับบาร์โค้ดซิมและทำการลงทะเบียนซิมที่นี่</div><div class="must">⚠️ ต้องสแกนลงทะเบียนผ่าน QR Code นี้เท่านั้น</div></div>`;
+      return `<div class="card">${d?`<img src="${d}" width="160" height="160"/>`:`<div style="width:160px;height:160px;background:#eee;display:flex;align-items:center;justify-content:center">QR</div>`}${s.phone ? `<div class="phone">📞 เบอร์: ${s.phone}</div>` : `<div class="phone-wait">📞 รับเบอร์โทรหลังลงทะเบียนซิม</div>`}<div class="trk">ซิมหมายเลข: ${s.trackingNo}</div><div class="lbl">สแกน QR Code เพื่อรับบาร์โค้ดซิมและทำการลงทะเบียนซิมที่นี่</div><div class="must">⚠️ ต้องสแกนลงทะเบียนผ่าน QR Code นี้เท่านั้น</div><div class="warn">⚠️ สำคัญมาก !!!<br>ห้ามลงทะเบียนซิมหลังเวลา 17:00 น. โดยเด็ดขาด<br>เพราะจะทำให้ซิมใช้งานไม่ได้<br>ถ้าเกิน 17:00 น. ต้องรอลงทะเบียนวันถัดไป<br>ทางร้านหยุดให้บริการทุกวันอาทิตย์และวันหยุดนักขัตฤกษ์</div></div>`;
     }).join("");
-    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>พิมพ์ QR</title><style>*{box-sizing:border-box}body{font-family:'Sarabun',sans-serif;background:#fff;margin:0;padding:20px}.grid{display:flex;flex-wrap:wrap;gap:14px}.card{border:1px solid #ccc;border-radius:10px;padding:12px;width:184px;text-align:center;page-break-inside:avoid}.phone{font-size:12px;font-weight:700;color:#059669;margin-top:6px}.phone-wait{font-size:11px;color:#d97706;margin-top:6px;font-weight:600}.trk{font-size:13px;font-weight:700;color:#4f46e5;margin-top:4px}.lbl{font-size:10px;color:#444;margin-top:4px;line-height:1.5}.must{font-size:11px;color:#dc2626;font-weight:800;margin-top:5px;line-height:1.4}@media print{.np{display:none!important}@page{margin:8mm}}</style></head><body><div class="np" style="margin-bottom:16px"><button onclick="window.print()" style="padding:12px 28px;font-size:16px;cursor:pointer;background:#4f46e5;color:white;border:none;border-radius:8px;font-weight:700">🖨️ พิมพ์ QR Code</button></div><div class="grid">${cards}</div><script>window.onload=function(){setTimeout(function(){window.print();},600)};<\/script></body></html>`;
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>พิมพ์ QR</title><style>*{box-sizing:border-box}body{font-family:'Sarabun',sans-serif;background:#fff;margin:0;padding:20px}.grid{display:flex;flex-wrap:wrap;gap:14px}.card{border:1px solid #ccc;border-radius:10px;padding:12px;width:184px;text-align:center;page-break-inside:avoid}.phone{font-size:12px;font-weight:700;color:#000;margin-top:6px}.phone-wait{font-size:11px;color:#000;margin-top:6px;font-weight:600}.trk{font-size:13px;font-weight:700;color:#000;margin-top:4px}.lbl{font-size:10px;color:#000;margin-top:4px;line-height:1.5}.must{font-size:11px;color:#000;font-weight:800;margin-top:5px;line-height:1.4}.warn{font-size:10px;color:#000;font-weight:800;margin-top:6px;line-height:1.6;border-top:1px solid #000;padding-top:5px}@media print{.np{display:none!important}@page{margin:8mm}}</style></head><body><div class="np" style="margin-bottom:16px"><button onclick="window.print()" style="padding:12px 28px;font-size:16px;cursor:pointer;background:#4f46e5;color:white;border:none;border-radius:8px;font-weight:700">🖨️ พิมพ์ QR Code</button></div><div class="grid">${cards}</div><script>window.onload=function(){setTimeout(function(){window.print();},600)};<\/script></body></html>`;
     const blob = new Blob([html],{type:"text/html;charset=utf-8"});
     const a = Object.assign(document.createElement("a"),{href:URL.createObjectURL(blob),target:"_blank",rel:"noopener"});
     document.body.appendChild(a); a.click();
@@ -920,6 +920,8 @@ function QRMain({ sims, onPreview, bot, chat, onMarkPrinted, onUnmarkPrinted, on
     onMarkPrinted(printedSerials);
     saveWaiting(waiting.filter(s=>!printedSerials.includes(s)));
     setSel([]); setPrinting(false);
+    // ย้ายไปแท็บ "พิมพ์แล้ว" อัตโนมัติ
+    setTimeout(() => setSubTab("done"), 800);
   };
 
   const subTabs = [
@@ -1002,13 +1004,20 @@ function QRMain({ sims, onPreview, bot, chat, onMarkPrinted, onUnmarkPrinted, on
             <div style={{background:"#fff",borderRadius:8,padding:5,display:"inline-block",marginBottom:5}}>
               <QR text={makeQRUrl(s.serial,s.trackingNo,bot,chat)} size={110}/>
             </div>
-            {s.phone ? <div style={{color:"#059669",fontSize:11,fontWeight:700,marginTop:3}}>📞 {s.phone}</div> : <div style={{color:"#d97706",fontSize:10,fontWeight:600,marginTop:3}}>📞 รับเบอร์หลังลงทะเบียน</div>}
+            {s.phone ? <div style={{color:"#000",fontSize:11,fontWeight:700,marginTop:3}}>📞 {s.phone}</div> : <div style={{color:"#000",fontSize:10,fontWeight:600,marginTop:3}}>📞 รับเบอร์หลังลงทะเบียน</div>}
             <div style={{display:"flex",alignItems:"center",gap:4,marginTop:2}}>
               {s.simCode && <span style={{background:s.simCode==="K"?"#4f46e5":"#059669",color:"white",fontSize:10,fontWeight:800,borderRadius:4,padding:"1px 5px"}}>{s.simCode}</span>}
-              <span style={{color:"#4f46e5",fontSize:11,fontWeight:700}}>ซิมหมายเลข: {s.trackingNo}</span>
+              <span style={{color:"#000",fontSize:11,fontWeight:700}}>ซิมหมายเลข: {s.trackingNo}</span>
             </div>
-            <div style={{color:"#555",fontSize:9,marginTop:2,lineHeight:1.4}}>สแกน QR Code เพื่อรับบาร์โค้ดซิมและทำการลงทะเบียนซิมที่นี่</div>
-            <div style={{color:"#dc2626",fontSize:9,fontWeight:800,marginTop:2}}>⚠️ ต้องสแกนลงทะเบียนผ่าน QR Code นี้เท่านั้น</div>
+            <div style={{color:"#000",fontSize:9,marginTop:2,lineHeight:1.4}}>สแกน QR Code เพื่อรับบาร์โค้ดซิมและทำการลงทะเบียนซิมที่นี่</div>
+            <div style={{color:"#000",fontSize:9,fontWeight:800,marginTop:2}}>⚠️ ต้องสแกนลงทะเบียนผ่าน QR Code นี้เท่านั้น</div>
+            <div style={{color:"#000",fontSize:8,fontWeight:800,marginTop:4,lineHeight:1.6,borderTop:"1px solid #ccc",paddingTop:4}}>
+              ⚠️ สำคัญมาก !!!<br/>
+              ห้ามลงทะเบียนซิมหลังเวลา 17:00 น. โดยเด็ดขาด<br/>
+              เพราะจะทำให้ซิมใช้งานไม่ได้<br/>
+              ถ้าเกิน 17:00 น. ต้องรอลงทะเบียนวันถัดไป<br/>
+              ทางร้านหยุดให้บริการทุกวันอาทิตย์และวันหยุดนักขัตฤกษ์
+            </div>
             {subTab==="waiting" && <div style={{marginTop:4,fontSize:9,color:"#fbbf24",fontWeight:700}}>🕐 รอพิมพ์</div>}
             {subTab==="done" && <div style={{marginTop:4,fontSize:9,color:"#6ee7b7",fontWeight:700}}>✅ พิมพ์แล้ว</div>}
             <div style={{display:"flex",gap:5,marginTop:7}}>
@@ -1029,13 +1038,20 @@ function QRCard({ sim, selected, onClick, onPreview, bot, chat }) {
     <div style={{background:selected?"rgba(79,70,229,0.2)":"rgba(255,255,255,0.04)",border:`2px solid ${selected?"#4f46e5":"rgba(255,255,255,0.08)"}`,borderRadius:12,padding:10,textAlign:"center"}}>
       <div onClick={onClick} style={{cursor:"pointer"}}>
         <div style={{background:"#fff",borderRadius:8,padding:5,display:"inline-block",marginBottom:5}}><QR text={qrUrl} size={110}/></div>
-        {sim.phone ? <div style={{color:"#059669",fontSize:12,fontWeight:700,marginTop:4}}>📞 {sim.phone}</div> : <div style={{color:"#d97706",fontSize:11,fontWeight:600,marginTop:4}}>📞 รับเบอร์โทรหลังลงทะเบียนซิม</div>}
+        {sim.phone ? <div style={{color:"#000",fontSize:12,fontWeight:700,marginTop:4}}>📞 {sim.phone}</div> : <div style={{color:"#000",fontSize:11,fontWeight:600,marginTop:4}}>📞 รับเบอร์โทรหลังลงทะเบียนซิม</div>}
         <div style={{display:"flex",alignItems:"center",gap:4,marginTop:2}}>
           {sim.simCode && <span style={{background:sim.simCode==="K"?"#4f46e5":"#059669",color:"white",fontSize:11,fontWeight:800,borderRadius:4,padding:"2px 7px"}}>{sim.simCode}</span>}
-          <span style={{color:"#4f46e5",fontSize:11,fontWeight:700}}>ซิมหมายเลข: {sim.trackingNo}</span>
+          <span style={{color:"#000",fontSize:11,fontWeight:700}}>ซิมหมายเลข: {sim.trackingNo}</span>
         </div>
-        <div style={{color:"#555",fontSize:9,marginTop:3,lineHeight:1.4}}>สแกน QR Code เพื่อรับบาร์โค้ดซิมและทำการลงทะเบียนซิมที่นี่</div>
-        <div style={{color:"#dc2626",fontSize:9,fontWeight:800,marginTop:2}}>⚠️ ต้องสแกนลงทะเบียนผ่าน QR Code นี้เท่านั้น</div>
+        <div style={{color:"#000",fontSize:9,marginTop:3,lineHeight:1.4}}>สแกน QR Code เพื่อรับบาร์โค้ดซิมและทำการลงทะเบียนซิมที่นี่</div>
+        <div style={{color:"#000",fontSize:9,fontWeight:800,marginTop:2}}>⚠️ ต้องสแกนลงทะเบียนผ่าน QR Code นี้เท่านั้น</div>
+        <div style={{color:"#000",fontSize:8,fontWeight:800,marginTop:4,lineHeight:1.6,borderTop:"1px solid #ccc",paddingTop:4}}>
+          ⚠️ สำคัญมาก !!!<br/>
+          ห้ามลงทะเบียนซิมหลังเวลา 17:00 น. โดยเด็ดขาด<br/>
+          เพราะจะทำให้ซิมใช้งานไม่ได้<br/>
+          ถ้าเกิน 17:00 น. ต้องรอลงทะเบียนวันถัดไป<br/>
+          ทางร้านหยุดให้บริการทุกวันอาทิตย์และวันหยุดนักขัตฤกษ์
+        </div>
       </div>
       <button onClick={e=>{e.stopPropagation();onPreview();}} style={{...S.btnS,width:"100%",marginTop:7,fontSize:10,padding:"4px 0"}}>👁 ทดสอบ</button>
     </div>
@@ -1073,9 +1089,9 @@ function QRManager({ sims, onPreview, bot, chat }) {
     }
     const cards = picked.map(s=>{
       const d = qrDataUrls[s.serial]||"";
-      return `<div class="card">${d?`<img src="${d}" width="160" height="160"/>`:`<div style="width:160px;height:160px;background:#eee;display:flex;align-items:center;justify-content:center;font-size:11px">QR</div>`}${s.phone ? `<div class="phone">📞 เบอร์: ${s.phone}</div>` : `<div class="phone-wait">📞 รับเบอร์โทรหลังลงทะเบียนซิม</div>`}<div class="trk">ซิมหมายเลข: ${s.trackingNo}</div><div class="lbl">สแกน QR Code เพื่อรับบาร์โค้ดซิมและทำการลงทะเบียนซิมที่นี่</div><div class="must">⚠️ ต้องสแกนลงทะเบียนผ่าน QR Code นี้เท่านั้น</div></div>`;
+      return `<div class="card">${d?`<img src="${d}" width="160" height="160"/>`:`<div style="width:160px;height:160px;background:#eee;display:flex;align-items:center;justify-content:center;font-size:11px">QR</div>`}${s.phone ? `<div class="phone">📞 เบอร์: ${s.phone}</div>` : `<div class="phone-wait">📞 รับเบอร์โทรหลังลงทะเบียนซิม</div>`}<div class="trk">ซิมหมายเลข: ${s.trackingNo}</div><div class="lbl">สแกน QR Code เพื่อรับบาร์โค้ดซิมและทำการลงทะเบียนซิมที่นี่</div><div class="must">⚠️ ต้องสแกนลงทะเบียนผ่าน QR Code นี้เท่านั้น</div><div class="warn">⚠️ สำคัญมาก !!!<br>ห้ามลงทะเบียนซิมหลังเวลา 17:00 น. โดยเด็ดขาด<br>เพราะจะทำให้ซิมใช้งานไม่ได้<br>ถ้าเกิน 17:00 น. ต้องรอลงทะเบียนวันถัดไป<br>ทางร้านหยุดให้บริการทุกวันอาทิตย์และวันหยุดนักขัตฤกษ์</div></div>`;
     }).join("");
-    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>พิมพ์ QR</title><style>*{box-sizing:border-box}body{font-family:'Sarabun',sans-serif;background:#fff;margin:0;padding:20px}.grid{display:flex;flex-wrap:wrap;gap:14px}.card{border:1px solid #ccc;border-radius:10px;padding:12px;width:184px;text-align:center;page-break-inside:avoid}.phone{font-size:12px;font-weight:700;color:#059669;margin-top:6px}.phone-wait{font-size:11px;color:#d97706;margin-top:6px;font-weight:600}.trk{font-size:13px;font-weight:700;color:#4f46e5;margin-top:4px}.lbl{font-size:10px;color:#444;margin-top:4px;line-height:1.5}.must{font-size:11px;color:#dc2626;font-weight:800;margin-top:5px;line-height:1.4}@media print{.np{display:none!important}@page{margin:8mm}}</style></head><body><div class="np" style="margin-bottom:16px"><button onclick="window.print()" style="padding:12px 28px;font-size:16px;cursor:pointer;background:#4f46e5;color:white;border:none;border-radius:8px;font-weight:700">🖨️ พิมพ์ / เลือกเครื่องปริ้น</button></div><div class="grid">${cards}</div><script>window.onload=function(){setTimeout(function(){window.print();},600)};<\/script></body></html>`;
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>พิมพ์ QR</title><style>*{box-sizing:border-box}body{font-family:'Sarabun',sans-serif;background:#fff;margin:0;padding:20px}.grid{display:flex;flex-wrap:wrap;gap:14px}.card{border:1px solid #ccc;border-radius:10px;padding:12px;width:184px;text-align:center;page-break-inside:avoid}.phone{font-size:12px;font-weight:700;color:#000;margin-top:6px}.phone-wait{font-size:11px;color:#000;margin-top:6px;font-weight:600}.trk{font-size:13px;font-weight:700;color:#000;margin-top:4px}.lbl{font-size:10px;color:#000;margin-top:4px;line-height:1.5}.must{font-size:11px;color:#000;font-weight:800;margin-top:5px;line-height:1.4}.warn{font-size:10px;color:#000;font-weight:800;margin-top:6px;line-height:1.6;border-top:1px solid #000;padding-top:5px}@media print{.np{display:none!important}@page{margin:8mm}}</style></head><body><div class="np" style="margin-bottom:16px"><button onclick="window.print()" style="padding:12px 28px;font-size:16px;cursor:pointer;background:#4f46e5;color:white;border:none;border-radius:8px;font-weight:700">🖨️ พิมพ์ / เลือกเครื่องปริ้น</button></div><div class="grid">${cards}</div><script>window.onload=function(){setTimeout(function(){window.print();},600)};<\/script></body></html>`;
     const blob = new Blob([html],{type:"text/html;charset=utf-8"});
     const url = URL.createObjectURL(blob);
     const a = Object.assign(document.createElement("a"),{href:url,target:"_blank",rel:"noopener"});
