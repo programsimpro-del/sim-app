@@ -951,7 +951,7 @@ function updateSize() {
   document.getElementById('sizeinfo').textContent = '→ การ์ด '+w+'×'+h+'mm | QR '+q+'mm | ตัวอักษร '+f+'pt';
 }
 window.onload = function(){ updateSize(); };
-</script><div class="grid">${cards}</div></body></html>`;
+<\/script><div class="grid">${cards}</div></body></html>`;
     const blob = new Blob([html],{type:"text/html;charset=utf-8"});
     // มาร์คและย้าย tab ก่อนเปิด window ใหม่ — ป้องกันหน้าจอดำ
     const printedSerials = toPrint.map(s=>s.serial);
@@ -1182,7 +1182,7 @@ function updateSize() {
   document.getElementById('sizeinfo').textContent = '→ การ์ด '+w+'×'+h+'mm | QR '+q+'mm | ตัวอักษร '+f+'pt';
 }
 window.onload = function(){ updateSize(); };
-</script><div class="grid">${cards}</div></body></html>`;
+<\/script><div class="grid">${cards}</div></body></html>`;
     const blob = new Blob([html],{type:"text/html;charset=utf-8"});
     const url = URL.createObjectURL(blob);
     const a = Object.assign(document.createElement("a"),{href:url,target:"_blank",rel:"noopener"});
