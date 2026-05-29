@@ -1129,7 +1129,7 @@ function QRCard({ sim, selected, onClick, onPreview, bot, chat }) {
 }
 
 // ===== QR MANAGER =====
-function QRManager({ sims, onPreview, bot, chat }) {
+function QRManager({ sims, onPreview, bot, chat, onAfterPrint }) {
   const [sel, setSel] = useState([]);
   const [q, setQ] = useState("");
   const [printing, setPrinting] = useState(false);
@@ -1228,10 +1228,11 @@ window.onload = function(){ updateSize(); };
     const blob = new Blob([html],{type:"text/html;charset=utf-8"});
     const url = URL.createObjectURL(blob);
     const a = Object.assign(document.createElement("a"),{href:url,target:"_blank",rel:"noopener"});
-    // mark ก่อน แล้วค่อยเปิด window
+    // mark + ย้าย tab ก่อนเปิด window
     onMarkPrinted(sel);
     setSel([]);
     setPrinting(false);
+    if (onAfterPrint) onAfterPrint(); // ย้ายไป tab พิมพ์แล้ว
 
     setTimeout(() => {
       const w = window.open("", "_blank");
