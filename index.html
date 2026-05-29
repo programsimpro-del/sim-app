@@ -980,7 +980,8 @@ window.onload = function(){ updateSize(); };
     saveWaiting(waiting.filter(s=>!printedSerials.includes(s)));
     setSel([]);
     setPrinting(false);
-    setSubTab("done");
+    // รอ state update แล้วค่อยย้าย tab
+    setTimeout(() => setSubTab("done"), 300);
 
     // เปิดหน้าพิมพ์ใน tab ใหม่
     setTimeout(() => {
