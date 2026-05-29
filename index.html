@@ -909,46 +909,67 @@ function QRMain({ sims, onPreview, bot, chat, onMarkPrinted, onUnmarkPrinted, on
       const d = qrDataUrls[s.serial] || "";
       return `<div class="card">${d?`<img src="${d}" width="200" height="200"/>`:`<div style="width:160px;height:160px;background:#eee;display:flex;align-items:center;justify-content:center">QR</div>`}${s.phone ? `<div class="phone">📞 เบอร์: ${s.phone}</div>` : `<div class="phone-wait">📞 รับเบอร์โทรหลังลงทะเบียนซิม</div>`}<div class="trk">ซิมหมายเลข: ${s.trackingNo}</div><div class="lbl">สแกน QR Code เพื่อรับบาร์โค้ดซิมและทำการลงทะเบียนซิมที่นี่</div><div class="must">⚠️ ต้องสแกนลงทะเบียนผ่าน QR Code นี้เท่านั้น</div><div class="warn">⚠️ สำคัญมาก !!!<br>ห้ามลงทะเบียนซิมหลังเวลา 17:00 น. โดยเด็ดขาด<br>เพราะจะทำให้ซิมใช้งานไม่ได้<br>ถ้าเกิน 17:00 น. ต้องรอลงทะเบียนวันถัดไป<br>ทางร้านหยุดให้บริการทุกวันอาทิตย์และวันหยุดนักขัตฤกษ์</div></div>`;
     }).join("");
-    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>พิมพ์ QR</title><style>*{box-sizing:border-box}body{font-family:'Sarabun',sans-serif;background:#fff;margin:0;padding:0;color:#000}.grid{display:block}.card{border:none;padding:3mm 4mm;width:100mm;height:75mm;text-align:center;page-break-inside:avoid;page-break-after:always;color:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden}.card img{width:40mm;height:40mm}.phone{font-size:9pt;font-weight:700;color:#000;margin-top:1.5mm}.phone-wait{font-size:8.5pt;color:#000;margin-top:1.5mm;font-weight:600}.trk{font-size:10pt;font-weight:700;color:#000;margin-top:1mm}.lbl{font-size:7.5pt;color:#000;margin-top:1mm;line-height:1.4}.must{font-size:8pt;color:#000;font-weight:800;margin-top:1.5mm;line-height:1.4}.warn{font-size:7pt;color:#000;font-weight:700;margin-top:2mm;line-height:1.5;border-top:0.5px solid #000;padding-top:1.5mm}@media print{.np{display:none!important}@page{size:100mm 75mm;margin:0}body{margin:0;padding:0}.card{width:100mm;height:75mm;padding:3mm 4mm}}</style></head><body><div class="np" style="background:#f5f5f5;border-bottom:2px solid #000;padding:12px 16px;margin-bottom:0;display:flex;flex-wrap:wrap;gap:10px;align-items:center">
-  <button onclick="window.print()" style="padding:12px 28px;font-size:16px;cursor:pointer;background:#000;color:#fff;border:none;border-radius:8px;font-weight:700">🖨️ พิมพ์ QR Code</button>
-  <button onclick="window.close()" style="padding:12px 20px;font-size:15px;cursor:pointer;background:#fff;color:#000;border:2px solid #000;border-radius:8px;font-weight:700">✕ ปิด</button>
-  <span style="color:#333;font-size:13px;font-weight:600;margin-left:8px">⚙️ ปรับขนาด:</span>
-  <label style="font-size:13px;color:#333">กว้าง (mm): <input id="w" type="number" value="100" min="50" max="210" style="width:60px;padding:4px;border:1px solid #999;border-radius:4px;font-size:13px" oninput="updateSize()"/></label>
-  <label style="font-size:13px;color:#333">สูง (mm): <input id="h" type="number" value="75" min="40" max="297" style="width:60px;padding:4px;border:1px solid #999;border-radius:4px;font-size:13px" oninput="updateSize()"/></label>
-  <label style="font-size:13px;color:#333">ขนาด QR (mm): <input id="q" type="number" value="40" min="20" max="80" style="width:60px;padding:4px;border:1px solid #999;border-radius:4px;font-size:13px" oninput="updateSize()"/></label>
-  <label style="font-size:13px;color:#333">ขนาดตัวอักษร (pt): <input id="f" type="number" value="8" min="5" max="16" style="width:50px;padding:4px;border:1px solid #999;border-radius:4px;font-size:13px" oninput="updateSize()"/></label>
-  <span id="sizeinfo" style="color:#555;font-size:12px"></span>
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>พิมพ์ QR</title><style>*{box-sizing:border-box}body{font-family:'Sarabun',sans-serif;background:#fff;margin:0;padding:0;color:#000}.grid{display:block}.card{border:none;padding:3mm 4mm;width:100mm;height:75mm;text-align:center;page-break-inside:avoid;page-break-after:always;color:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden}.card img{width:40mm;height:40mm}.phone{font-size:9pt;font-weight:700;color:#000;margin-top:1.5mm}.phone-wait{font-size:8.5pt;color:#000;margin-top:1.5mm;font-weight:600}.trk{font-size:10pt;font-weight:700;color:#000;margin-top:1mm}.lbl{font-size:7.5pt;color:#000;margin-top:1mm;line-height:1.4}.must{font-size:8pt;color:#000;font-weight:800;margin-top:1.5mm;line-height:1.4}.warn{font-size:7pt;color:#000;font-weight:700;margin-top:2mm;line-height:1.5;border-top:0.5px solid #000;padding-top:1.5mm}@media print{.np{display:none!important}@page{size:100mm 75mm;margin:0}body{margin:0;padding:0}.card{width:100mm;height:75mm;padding:3mm 4mm}}</style></head><body><div class="np" style="background:#f5f5f5;border-bottom:2px solid #000;padding:12px 16px;margin-bottom:0">
+  <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:10px">
+    <button onclick="window.print()" style="padding:12px 28px;font-size:16px;cursor:pointer;background:#000;color:#fff;border:none;border-radius:8px;font-weight:700">🖨️ พิมพ์ QR Code</button>
+    <button onclick="window.close()" style="padding:12px 20px;font-size:15px;cursor:pointer;background:#fff;color:#000;border:2px solid #000;border-radius:8px;font-weight:700">✕ ปิด</button>
+    <span id="sizeinfo" style="color:#555;font-size:12px;margin-left:4px"></span>
+  </div>
+  <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center">
+    <span style="color:#333;font-size:13px;font-weight:700">⚙️ ปรับก่อนพิมพ์:</span>
+    <label style="font-size:13px;color:#333;font-weight:600">แนวพิมพ์:
+      <select id="orient" onchange="applyOrientation()" style="margin-left:6px;padding:4px 8px;border:1px solid #999;border-radius:4px;font-size:13px">
+        <option value="portrait">แนวตั้ง (Portrait)</option>
+        <option value="landscape">แนวนอน (Landscape)</option>
+      </select>
+    </label>
+    <label style="font-size:13px;color:#333">กว้าง (mm): <input id="w" type="number" value="100" min="50" max="297" style="width:60px;padding:4px;border:1px solid #999;border-radius:4px;font-size:13px" oninput="updateSize()"/></label>
+    <label style="font-size:13px;color:#333">สูง (mm): <input id="h" type="number" value="75" min="40" max="297" style="width:60px;padding:4px;border:1px solid #999;border-radius:4px;font-size:13px" oninput="updateSize()"/></label>
+    <label style="font-size:13px;color:#333">ขนาด QR (mm): <input id="q" type="number" value="40" min="20" max="80" style="width:60px;padding:4px;border:1px solid #999;border-radius:4px;font-size:13px" oninput="updateSize()"/></label>
+    <label style="font-size:13px;color:#333">ตัวอักษร (pt): <input id="f" type="number" value="8" min="5" max="16" style="width:50px;padding:4px;border:1px solid #999;border-radius:4px;font-size:13px" oninput="updateSize()"/></label>
+  </div>
 </div>
 <script>
+function applyOrientation() {
+  var orient = document.getElementById('orient').value;
+  var w = parseFloat(document.getElementById('w').value)||100;
+  var h = parseFloat(document.getElementById('h').value)||75;
+  if(orient === 'landscape' && w < h) {
+    document.getElementById('w').value = h;
+    document.getElementById('h').value = w;
+  } else if(orient === 'portrait' && w > h) {
+    document.getElementById('w').value = h;
+    document.getElementById('h').value = w;
+  }
+  updateSize();
+}
 function updateSize() {
   var w = parseFloat(document.getElementById('w').value)||100;
   var h = parseFloat(document.getElementById('h').value)||75;
   var q = parseFloat(document.getElementById('q').value)||40;
   var f = parseFloat(document.getElementById('f').value)||8;
-  // อัปเดต style ของ card และ QR
-  var cards = document.querySelectorAll('.card');
-  cards.forEach(function(c){
-    c.style.width = w+'mm';
-    c.style.height = h+'mm';
+  var orient = document.getElementById('orient').value;
+  // ซิงค์ dropdown กับขนาด
+  if(w > h && orient === 'portrait') document.getElementById('orient').value = 'landscape';
+  if(h > w && orient === 'landscape') document.getElementById('orient').value = 'portrait';
+  // อัปเดต card
+  document.querySelectorAll('.card').forEach(function(c){
+    c.style.width = w+'mm'; c.style.height = h+'mm';
   });
-  var imgs = document.querySelectorAll('.card img');
-  imgs.forEach(function(img){
-    img.style.width = q+'mm';
-    img.style.height = q+'mm';
+  document.querySelectorAll('.card img').forEach(function(img){
+    img.style.width = q+'mm'; img.style.height = q+'mm';
   });
-  // อัปเดต font size ทุก class
   var classes = ['phone','phone-wait','trk','lbl','must','warn'];
   var sizes = [f+1, f+0.5, f+2, f-0.5, f, f-1];
   classes.forEach(function(cls, i){
-    document.querySelectorAll('.'+cls).forEach(function(el){
-      el.style.fontSize = sizes[i]+'pt';
-    });
+    document.querySelectorAll('.'+cls).forEach(function(el){ el.style.fontSize = sizes[i]+'pt'; });
   });
-  // อัปเดต @page style
-  var pageStyle = document.getElementById('pageStyle');
-  if(!pageStyle){ pageStyle = document.createElement('style'); pageStyle.id='pageStyle'; document.head.appendChild(pageStyle); }
-  pageStyle.textContent = '@page{size:'+w+'mm '+h+'mm;margin:0}';
-  document.getElementById('sizeinfo').textContent = '→ การ์ด '+w+'×'+h+'mm | QR '+q+'mm | ตัวอักษร '+f+'pt';
+  // อัปเดต @page
+  var ps = document.getElementById('pageStyle');
+  if(!ps){ ps = document.createElement('style'); ps.id='pageStyle'; document.head.appendChild(ps); }
+  ps.textContent = '@media print{@page{size:'+w+'mm '+h+'mm;margin:0}.card{width:'+w+'mm!important;height:'+h+'mm!important}}';
+  var orientLabel = w >= h ? '📄 แนวนอน' : '📋 แนวตั้ง';
+  document.getElementById('sizeinfo').textContent = orientLabel+' | '+w+'×'+h+'mm | QR '+q+'mm | ตัวอักษร '+f+'pt';
 }
 window.onload = function(){ updateSize(); };
 <\/script><div class="grid">${cards}</div></body></html>`;
@@ -1140,46 +1161,67 @@ function QRManager({ sims, onPreview, bot, chat }) {
       const d = qrDataUrls[s.serial]||"";
       return `<div class="card">${d?`<img src="${d}" width="200" height="200"/>`:`<div style="width:160px;height:160px;background:#eee;display:flex;align-items:center;justify-content:center;font-size:11px">QR</div>`}${s.phone ? `<div class="phone">📞 เบอร์: ${s.phone}</div>` : `<div class="phone-wait">📞 รับเบอร์โทรหลังลงทะเบียนซิม</div>`}<div class="trk">ซิมหมายเลข: ${s.trackingNo}</div><div class="lbl">สแกน QR Code เพื่อรับบาร์โค้ดซิมและทำการลงทะเบียนซิมที่นี่</div><div class="must">⚠️ ต้องสแกนลงทะเบียนผ่าน QR Code นี้เท่านั้น</div><div class="warn">⚠️ สำคัญมาก !!!<br>ห้ามลงทะเบียนซิมหลังเวลา 17:00 น. โดยเด็ดขาด<br>เพราะจะทำให้ซิมใช้งานไม่ได้<br>ถ้าเกิน 17:00 น. ต้องรอลงทะเบียนวันถัดไป<br>ทางร้านหยุดให้บริการทุกวันอาทิตย์และวันหยุดนักขัตฤกษ์</div></div>`;
     }).join("");
-    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>พิมพ์ QR</title><style>*{box-sizing:border-box}body{font-family:'Sarabun',sans-serif;background:#fff;margin:0;padding:0;color:#000}.grid{display:block}.card{border:none;padding:3mm 4mm;width:100mm;height:75mm;text-align:center;page-break-inside:avoid;page-break-after:always;color:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden}.card img{width:40mm;height:40mm}.phone{font-size:9pt;font-weight:700;color:#000;margin-top:1.5mm}.phone-wait{font-size:8.5pt;color:#000;margin-top:1.5mm;font-weight:600}.trk{font-size:10pt;font-weight:700;color:#000;margin-top:1mm}.lbl{font-size:7.5pt;color:#000;margin-top:1mm;line-height:1.4}.must{font-size:8pt;color:#000;font-weight:800;margin-top:1.5mm;line-height:1.4}.warn{font-size:7pt;color:#000;font-weight:700;margin-top:2mm;line-height:1.5;border-top:0.5px solid #000;padding-top:1.5mm}@media print{.np{display:none!important}@page{size:100mm 75mm;margin:0}body{margin:0;padding:0}.card{width:100mm;height:75mm;padding:3mm 4mm}}</style></head><body><div class="np" style="background:#f5f5f5;border-bottom:2px solid #000;padding:12px 16px;margin-bottom:0;display:flex;flex-wrap:wrap;gap:10px;align-items:center">
-  <button onclick="window.print()" style="padding:12px 28px;font-size:16px;cursor:pointer;background:#000;color:#fff;border:none;border-radius:8px;font-weight:700">🖨️ พิมพ์ QR Code</button>
-  <button onclick="window.close()" style="padding:12px 20px;font-size:15px;cursor:pointer;background:#fff;color:#000;border:2px solid #000;border-radius:8px;font-weight:700">✕ ปิด</button>
-  <span style="color:#333;font-size:13px;font-weight:600;margin-left:8px">⚙️ ปรับขนาด:</span>
-  <label style="font-size:13px;color:#333">กว้าง (mm): <input id="w" type="number" value="100" min="50" max="210" style="width:60px;padding:4px;border:1px solid #999;border-radius:4px;font-size:13px" oninput="updateSize()"/></label>
-  <label style="font-size:13px;color:#333">สูง (mm): <input id="h" type="number" value="75" min="40" max="297" style="width:60px;padding:4px;border:1px solid #999;border-radius:4px;font-size:13px" oninput="updateSize()"/></label>
-  <label style="font-size:13px;color:#333">ขนาด QR (mm): <input id="q" type="number" value="40" min="20" max="80" style="width:60px;padding:4px;border:1px solid #999;border-radius:4px;font-size:13px" oninput="updateSize()"/></label>
-  <label style="font-size:13px;color:#333">ขนาดตัวอักษร (pt): <input id="f" type="number" value="8" min="5" max="16" style="width:50px;padding:4px;border:1px solid #999;border-radius:4px;font-size:13px" oninput="updateSize()"/></label>
-  <span id="sizeinfo" style="color:#555;font-size:12px"></span>
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>พิมพ์ QR</title><style>*{box-sizing:border-box}body{font-family:'Sarabun',sans-serif;background:#fff;margin:0;padding:0;color:#000}.grid{display:block}.card{border:none;padding:3mm 4mm;width:100mm;height:75mm;text-align:center;page-break-inside:avoid;page-break-after:always;color:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden}.card img{width:40mm;height:40mm}.phone{font-size:9pt;font-weight:700;color:#000;margin-top:1.5mm}.phone-wait{font-size:8.5pt;color:#000;margin-top:1.5mm;font-weight:600}.trk{font-size:10pt;font-weight:700;color:#000;margin-top:1mm}.lbl{font-size:7.5pt;color:#000;margin-top:1mm;line-height:1.4}.must{font-size:8pt;color:#000;font-weight:800;margin-top:1.5mm;line-height:1.4}.warn{font-size:7pt;color:#000;font-weight:700;margin-top:2mm;line-height:1.5;border-top:0.5px solid #000;padding-top:1.5mm}@media print{.np{display:none!important}@page{size:100mm 75mm;margin:0}body{margin:0;padding:0}.card{width:100mm;height:75mm;padding:3mm 4mm}}</style></head><body><div class="np" style="background:#f5f5f5;border-bottom:2px solid #000;padding:12px 16px;margin-bottom:0">
+  <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:10px">
+    <button onclick="window.print()" style="padding:12px 28px;font-size:16px;cursor:pointer;background:#000;color:#fff;border:none;border-radius:8px;font-weight:700">🖨️ พิมพ์ QR Code</button>
+    <button onclick="window.close()" style="padding:12px 20px;font-size:15px;cursor:pointer;background:#fff;color:#000;border:2px solid #000;border-radius:8px;font-weight:700">✕ ปิด</button>
+    <span id="sizeinfo" style="color:#555;font-size:12px;margin-left:4px"></span>
+  </div>
+  <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center">
+    <span style="color:#333;font-size:13px;font-weight:700">⚙️ ปรับก่อนพิมพ์:</span>
+    <label style="font-size:13px;color:#333;font-weight:600">แนวพิมพ์:
+      <select id="orient" onchange="applyOrientation()" style="margin-left:6px;padding:4px 8px;border:1px solid #999;border-radius:4px;font-size:13px">
+        <option value="portrait">แนวตั้ง (Portrait)</option>
+        <option value="landscape">แนวนอน (Landscape)</option>
+      </select>
+    </label>
+    <label style="font-size:13px;color:#333">กว้าง (mm): <input id="w" type="number" value="100" min="50" max="297" style="width:60px;padding:4px;border:1px solid #999;border-radius:4px;font-size:13px" oninput="updateSize()"/></label>
+    <label style="font-size:13px;color:#333">สูง (mm): <input id="h" type="number" value="75" min="40" max="297" style="width:60px;padding:4px;border:1px solid #999;border-radius:4px;font-size:13px" oninput="updateSize()"/></label>
+    <label style="font-size:13px;color:#333">ขนาด QR (mm): <input id="q" type="number" value="40" min="20" max="80" style="width:60px;padding:4px;border:1px solid #999;border-radius:4px;font-size:13px" oninput="updateSize()"/></label>
+    <label style="font-size:13px;color:#333">ตัวอักษร (pt): <input id="f" type="number" value="8" min="5" max="16" style="width:50px;padding:4px;border:1px solid #999;border-radius:4px;font-size:13px" oninput="updateSize()"/></label>
+  </div>
 </div>
 <script>
+function applyOrientation() {
+  var orient = document.getElementById('orient').value;
+  var w = parseFloat(document.getElementById('w').value)||100;
+  var h = parseFloat(document.getElementById('h').value)||75;
+  if(orient === 'landscape' && w < h) {
+    document.getElementById('w').value = h;
+    document.getElementById('h').value = w;
+  } else if(orient === 'portrait' && w > h) {
+    document.getElementById('w').value = h;
+    document.getElementById('h').value = w;
+  }
+  updateSize();
+}
 function updateSize() {
   var w = parseFloat(document.getElementById('w').value)||100;
   var h = parseFloat(document.getElementById('h').value)||75;
   var q = parseFloat(document.getElementById('q').value)||40;
   var f = parseFloat(document.getElementById('f').value)||8;
-  // อัปเดต style ของ card และ QR
-  var cards = document.querySelectorAll('.card');
-  cards.forEach(function(c){
-    c.style.width = w+'mm';
-    c.style.height = h+'mm';
+  var orient = document.getElementById('orient').value;
+  // ซิงค์ dropdown กับขนาด
+  if(w > h && orient === 'portrait') document.getElementById('orient').value = 'landscape';
+  if(h > w && orient === 'landscape') document.getElementById('orient').value = 'portrait';
+  // อัปเดต card
+  document.querySelectorAll('.card').forEach(function(c){
+    c.style.width = w+'mm'; c.style.height = h+'mm';
   });
-  var imgs = document.querySelectorAll('.card img');
-  imgs.forEach(function(img){
-    img.style.width = q+'mm';
-    img.style.height = q+'mm';
+  document.querySelectorAll('.card img').forEach(function(img){
+    img.style.width = q+'mm'; img.style.height = q+'mm';
   });
-  // อัปเดต font size ทุก class
   var classes = ['phone','phone-wait','trk','lbl','must','warn'];
   var sizes = [f+1, f+0.5, f+2, f-0.5, f, f-1];
   classes.forEach(function(cls, i){
-    document.querySelectorAll('.'+cls).forEach(function(el){
-      el.style.fontSize = sizes[i]+'pt';
-    });
+    document.querySelectorAll('.'+cls).forEach(function(el){ el.style.fontSize = sizes[i]+'pt'; });
   });
-  // อัปเดต @page style
-  var pageStyle = document.getElementById('pageStyle');
-  if(!pageStyle){ pageStyle = document.createElement('style'); pageStyle.id='pageStyle'; document.head.appendChild(pageStyle); }
-  pageStyle.textContent = '@page{size:'+w+'mm '+h+'mm;margin:0}';
-  document.getElementById('sizeinfo').textContent = '→ การ์ด '+w+'×'+h+'mm | QR '+q+'mm | ตัวอักษร '+f+'pt';
+  // อัปเดต @page
+  var ps = document.getElementById('pageStyle');
+  if(!ps){ ps = document.createElement('style'); ps.id='pageStyle'; document.head.appendChild(ps); }
+  ps.textContent = '@media print{@page{size:'+w+'mm '+h+'mm;margin:0}.card{width:'+w+'mm!important;height:'+h+'mm!important}}';
+  var orientLabel = w >= h ? '📄 แนวนอน' : '📋 แนวตั้ง';
+  document.getElementById('sizeinfo').textContent = orientLabel+' | '+w+'×'+h+'mm | QR '+q+'mm | ตัวอักษร '+f+'pt';
 }
 window.onload = function(){ updateSize(); };
 <\/script><div class="grid">${cards}</div></body></html>`;
