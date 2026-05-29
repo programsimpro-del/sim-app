@@ -854,7 +854,7 @@ function SimList({ sims, onDelete, onUpdatePhone }) {
 
 // ===== QR MAIN (รวม 3 สถานะ: รอพิมพ์, ยังไม่พิมพ์, พิมพ์แล้ว) =====
 function QRMain({ sims, onPreview, bot, chat, onMarkPrinted, onUnmarkPrinted, onDeleteSim }) {
-  const [subTab, setSubTab] = useState("waiting"); // waiting=รอพิมพ์, new=ยังไม่พิมพ์, done=พิมพ์แล้ว
+  const [subTab, setSubTab] = useState("new"); // new=ยังไม่พิมพ์, done=พิมพ์แล้ว
   const [sel, setSel] = useState([]);
   const [q, setQ] = useState("");
   const [printing, setPrinting] = useState(false);
@@ -880,8 +880,17 @@ function QRMain({ sims, onPreview, bot, chat, onMarkPrinted, onUnmarkPrinted, on
   };
 
   // พิมพ์จริง — ย้ายจาก "รอพิมพ์" → "พิมพ์แล้ว"
+  // ย้าย QR จาก "ยังไม่พิมพ์" ไป "พิมพ์แล้ว" โดยไม่พิมพ์
+  const moveToDone = () => {
+    if (sel.length === 0) return;
+    const toMove = [...sel];
+    onMarkPrinted(toMove);
+    setSel([]);
+    setTimeout(() => setSubTab("done"), 400);
+  };
+
   const doPrint = async () => {
-    const toPrint = subTab === "waiting" ? waitingList.filter(s => sel.includes(s.serial)) : sims.filter(s => sel.includes(s.serial));
+    const toPrint = sims.filter(s => sel.includes(s.serial));
     if (toPrint.length === 0) return;
     setPrinting(true);
 
@@ -975,20 +984,11 @@ window.onload = function(){ updateSize(); };
 <\/script><div class="grid">${cards}</div></body></html>`;
     const blob = new Blob([html],{type:"text/html;charset=utf-8"});
 
-    // ลำดับสำคัญ: ลบออกจาก waiting ก่อน → mark printed → ย้าย tab
     const printedSerials = toPrint.map(s=>s.serial);
-    
-    // 1. ลบออกจาก waiting array ก่อนเลย
-    const newWaiting = waiting.filter(s => !printedSerials.includes(s));
-    saveWaiting(newWaiting);
-    
-    // 2. mark printed ใน sims state
     onMarkPrinted(printedSerials);
-    
     setSel([]);
     setPrinting(false);
-    
-    // 3. ย้าย tab หลัง state update เสร็จ
+    // ย้ายไปแท็บพิมพ์แล้ว
     setTimeout(() => setSubTab("done"), 400);
 
     // เปิดหน้าพิมพ์ใน tab ใหม่
@@ -1004,12 +1004,11 @@ window.onload = function(){ updateSize(); };
   };
 
   const subTabs = [
-    { id:"waiting", label:`🕐 รอพิมพ์ (${waitingList.length})`, color:"#fbbf24" },
-    { id:"new",     label:`🖨️ ยังไม่พิมพ์ (${notPrinted.length})`, color:"#a5b4fc" },
-    { id:"done",    label:`✅ พิมพ์แล้ว (${printed.length})`, color:"#6ee7b7" },
+    { id:"new",  label:`🖨️ ยังไม่พิมพ์ (${notPrinted.length})`, color:"#a5b4fc" },
+    { id:"done", label:`✅ พิมพ์แล้ว (${printed.length})`,       color:"#6ee7b7" },
   ];
 
-  const currentList = subTab==="waiting" ? waitingList : subTab==="new" ? notPrinted : printed;
+  const currentList = subTab==="new" ? notPrinted : printed;
 
   return (
     <div style={S.card}>
@@ -1040,21 +1039,22 @@ window.onload = function(){ updateSize(); };
       {sel.length > 0 && (
         <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
           {subTab==="new" && (
-            <button onClick={moveToWaiting}
-              style={{...S.btnS,flex:1,background:"rgba(251,191,36,0.2)",color:"#fbbf24",border:"1px solid rgba(251,191,36,0.4)",fontWeight:700}}>
-              🕐 ย้ายไป รอพิมพ์ ({sel.length})
-            </button>
-          )}
-          {(subTab==="waiting" || subTab==="new") && (
-            <button onClick={doPrint} disabled={printing}
-              style={{...S.btnP,flex:1,opacity:printing?0.6:1}}>
-              {printing?"⏳ กำลังสร้าง...":"🖨️ พิมพ์ QR จริง ("+sel.length+")"}
-            </button>
+            <>
+              <button onClick={doPrint} disabled={printing}
+                style={{...S.btnP,flex:1,opacity:printing?0.6:1}}>
+                {printing?"⏳ กำลังสร้าง...":"🖨️ พิมพ์ QR ("+sel.length+")"}
+              </button>
+              <button
+                onClick={moveToDone}
+                style={{...S.btnS,flex:1,background:"rgba(16,185,129,0.15)",color:"#6ee7b7",border:"1px solid rgba(16,185,129,0.4)",fontWeight:700}}>
+                ✅ ย้ายไป พิมพ์แล้ว ({sel.length})
+              </button>
+            </>
           )}
           {subTab==="done" && (
             <button onClick={()=>{sel.forEach(s=>onUnmarkPrinted(s));setSel([]);}}
               style={{...S.btnS,flex:1,color:"#f59e0b",border:"1px solid rgba(245,158,11,0.4)"}}>
-              ↩️ ยกเลิกพิมพ์ ({sel.length})
+              ↩️ ย้ายกลับ ยังไม่พิมพ์ ({sel.length})
             </button>
           )}
         </div>
@@ -1064,9 +1064,9 @@ window.onload = function(){ updateSize(); };
       {fl(currentList).length===0 && (
         <div style={{textAlign:"center",padding:36,color:"#8b8fa8"}}>
           <div style={{fontSize:36,marginBottom:8}}>
-            {subTab==="waiting"?"🕐":subTab==="new"?"🎉":"📭"}
+            {subTab==="new"?"🎉":"📭"}
           </div>
-          <div>{subTab==="waiting"?"ยังไม่มีซิมในคิวรอพิมพ์":subTab==="new"?"ยังไม่พิมพ์ QR ครบทุกซิมแล้ว":"ยังไม่มีซิมที่พิมพ์ QR แล้ว"}</div>
+          <div>{subTab==="new"?"พิมพ์ QR ครบทุกซิมแล้ว ✅":"ยังไม่มีซิมที่พิมพ์ QR แล้ว"}</div>
         </div>
       )}
 
@@ -1097,7 +1097,7 @@ window.onload = function(){ updateSize(); };
               ถ้าเกิน 17:00 น. ต้องรอลงทะเบียนวันถัดไป<br/>
               ทางร้านหยุดให้บริการทุกวันอาทิตย์และวันหยุดนักขัตฤกษ์
             </div>
-            {subTab==="waiting" && <div style={{marginTop:4,fontSize:9,color:"#fbbf24",fontWeight:700}}>🕐 รอพิมพ์</div>}
+            
             {subTab==="done" && <div style={{marginTop:4,fontSize:9,color:"#6ee7b7",fontWeight:700}}>✅ พิมพ์แล้ว</div>}
             <div style={{display:"flex",gap:5,marginTop:7}}>
               <button onClick={e=>{e.stopPropagation();onPreview(s);}} style={{...S.btnS,flex:1,fontSize:10,padding:"4px 0"}}>👁 ทดสอบ</button>
