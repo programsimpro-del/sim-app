@@ -974,14 +974,22 @@ function updateSize() {
 window.onload = function(){ updateSize(); };
 <\/script><div class="grid">${cards}</div></body></html>`;
     const blob = new Blob([html],{type:"text/html;charset=utf-8"});
-    // มาร์คและย้าย tab ก่อนเปิด window ใหม่ — ป้องกันหน้าจอดำ
+
+    // ลำดับสำคัญ: ลบออกจาก waiting ก่อน → mark printed → ย้าย tab
     const printedSerials = toPrint.map(s=>s.serial);
+    
+    // 1. ลบออกจาก waiting array ก่อนเลย
+    const newWaiting = waiting.filter(s => !printedSerials.includes(s));
+    saveWaiting(newWaiting);
+    
+    // 2. mark printed ใน sims state
     onMarkPrinted(printedSerials);
-    saveWaiting(waiting.filter(s=>!printedSerials.includes(s)));
+    
     setSel([]);
     setPrinting(false);
-    // รอ state update แล้วค่อยย้าย tab
-    setTimeout(() => setSubTab("done"), 300);
+    
+    // 3. ย้าย tab หลัง state update เสร็จ
+    setTimeout(() => setSubTab("done"), 400);
 
     // เปิดหน้าพิมพ์ใน tab ใหม่
     setTimeout(() => {
