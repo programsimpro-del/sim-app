@@ -884,9 +884,11 @@ function QRMain({ sims, onPreview, bot, chat, onMarkPrinted, onUnmarkPrinted, on
   const moveToDone = () => {
     if (sel.length === 0) return;
     const toMove = [...sel];
-    onMarkPrinted(toMove);
-    setSel([]);
-    setTimeout(() => setSubTab("done"), 400);
+    setSel([]); // clear selection ก่อน
+    setTimeout(() => {
+      onMarkPrinted(toMove); // mark หลัง render รอบหนึ่ง
+      setTimeout(() => setSubTab("done"), 500); // ย้าย tab หลัง state update
+    }, 50);
   };
 
   const doPrint = async () => {
@@ -918,7 +920,7 @@ function QRMain({ sims, onPreview, bot, chat, onMarkPrinted, onUnmarkPrinted, on
       const d = qrDataUrls[s.serial] || "";
       return `<div class="card">${d?`<img src="${d}" width="200" height="200"/>`:`<div style="width:160px;height:160px;background:#eee;display:flex;align-items:center;justify-content:center">QR</div>`}${s.phone ? `<div class="phone">📞 เบอร์: ${s.phone}</div>` : `<div class="phone-wait">📞 รับเบอร์โทรหลังลงทะเบียนซิม</div>`}<div class="trk">ซิมหมายเลข: ${s.trackingNo}</div><div class="lbl">สแกน QR Code เพื่อรับบาร์โค้ดซิมและทำการลงทะเบียนซิมที่นี่</div><div class="must">⚠️ ต้องสแกนลงทะเบียนผ่าน QR Code นี้เท่านั้น</div><div class="warn">⚠️ สำคัญมาก !!!<br>ห้ามลงทะเบียนซิมหลังเวลา 17:00 น. โดยเด็ดขาด<br>เพราะจะทำให้ซิมใช้งานไม่ได้<br>ถ้าเกิน 17:00 น. ต้องรอลงทะเบียนวันถัดไป<br>ทางร้านหยุดให้บริการทุกวันอาทิตย์และวันหยุดนักขัตฤกษ์</div></div>`;
     }).join("");
-    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>พิมพ์ QR</title><style>*{box-sizing:border-box}body{font-family:'Sarabun',sans-serif;background:#fff;margin:0;padding:0;color:#000}.grid{display:block}.card{border:none;padding:3mm 4mm;width:100mm;height:75mm;text-align:center;page-break-inside:avoid;page-break-after:always;color:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden}.card img{width:40mm;height:40mm}.phone{font-size:9pt;font-weight:700;color:#000;margin-top:1.5mm}.phone-wait{font-size:8.5pt;color:#000;margin-top:1.5mm;font-weight:600}.trk{font-size:10pt;font-weight:700;color:#000;margin-top:1mm}.lbl{font-size:7.5pt;color:#000;margin-top:1mm;line-height:1.4}.must{font-size:8pt;color:#000;font-weight:800;margin-top:1.5mm;line-height:1.4}.warn{font-size:7pt;color:#000;font-weight:700;margin-top:2mm;line-height:1.5;border-top:0.5px solid #000;padding-top:1.5mm}@media print{.np{display:none!important}@page{size:100mm 75mm;margin:0}body{margin:0;padding:0}.card{width:100mm;height:75mm;padding:3mm 4mm}}</style></head><body><div class="np" style="background:#f5f5f5;border-bottom:2px solid #000;padding:12px 16px;margin-bottom:0">
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>พิมพ์ QR</title><style>*{box-sizing:border-box}body{font-family:'Sarabun',sans-serif;background:#fff;margin:0;padding:0;color:#000}.grid{display:block}.card{border:2px solid #000;border-radius:4mm;padding:3mm 4mm;width:100mm;height:75mm;text-align:center;page-break-inside:avoid;page-break-after:always;color:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden;box-sizing:border-box}.card img{width:40mm;height:40mm}.phone{font-size:9pt;font-weight:700;color:#000;margin-top:1.5mm}.phone-wait{font-size:8.5pt;color:#000;margin-top:1.5mm;font-weight:600}.trk{font-size:10pt;font-weight:700;color:#000;margin-top:1mm}.lbl{font-size:7.5pt;color:#000;margin-top:1mm;line-height:1.4}.must{font-size:8pt;color:#000;font-weight:800;margin-top:1.5mm;line-height:1.4}.warn{font-size:7pt;color:#000;font-weight:700;margin-top:2mm;line-height:1.5;border-top:0.5px solid #000;padding-top:1.5mm}@media print{.np{display:none!important}@page{size:100mm 75mm;margin:0}body{margin:0;padding:0}.card{width:100mm;height:75mm;padding:3mm 4mm;border:2px solid #000!important;border-radius:4mm;-webkit-print-color-adjust:exact;print-color-adjust:exact}}</style></head><body><div class="np" style="background:#f5f5f5;border-bottom:2px solid #000;padding:12px 16px;margin-bottom:0">
   <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:10px">
     <button onclick="window.print()" style="padding:12px 28px;font-size:16px;cursor:pointer;background:#000;color:#fff;border:none;border-radius:8px;font-weight:700">🖨️ พิมพ์ QR Code</button>
     <button onclick="window.close()" style="padding:12px 20px;font-size:15px;cursor:pointer;background:#fff;color:#000;border:2px solid #000;border-radius:8px;font-weight:700">✕ ปิด</button>
@@ -1170,7 +1172,7 @@ function QRManager({ sims, onPreview, bot, chat, onAfterPrint }) {
       const d = qrDataUrls[s.serial]||"";
       return `<div class="card">${d?`<img src="${d}" width="200" height="200"/>`:`<div style="width:160px;height:160px;background:#eee;display:flex;align-items:center;justify-content:center;font-size:11px">QR</div>`}${s.phone ? `<div class="phone">📞 เบอร์: ${s.phone}</div>` : `<div class="phone-wait">📞 รับเบอร์โทรหลังลงทะเบียนซิม</div>`}<div class="trk">ซิมหมายเลข: ${s.trackingNo}</div><div class="lbl">สแกน QR Code เพื่อรับบาร์โค้ดซิมและทำการลงทะเบียนซิมที่นี่</div><div class="must">⚠️ ต้องสแกนลงทะเบียนผ่าน QR Code นี้เท่านั้น</div><div class="warn">⚠️ สำคัญมาก !!!<br>ห้ามลงทะเบียนซิมหลังเวลา 17:00 น. โดยเด็ดขาด<br>เพราะจะทำให้ซิมใช้งานไม่ได้<br>ถ้าเกิน 17:00 น. ต้องรอลงทะเบียนวันถัดไป<br>ทางร้านหยุดให้บริการทุกวันอาทิตย์และวันหยุดนักขัตฤกษ์</div></div>`;
     }).join("");
-    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>พิมพ์ QR</title><style>*{box-sizing:border-box}body{font-family:'Sarabun',sans-serif;background:#fff;margin:0;padding:0;color:#000}.grid{display:block}.card{border:none;padding:3mm 4mm;width:100mm;height:75mm;text-align:center;page-break-inside:avoid;page-break-after:always;color:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden}.card img{width:40mm;height:40mm}.phone{font-size:9pt;font-weight:700;color:#000;margin-top:1.5mm}.phone-wait{font-size:8.5pt;color:#000;margin-top:1.5mm;font-weight:600}.trk{font-size:10pt;font-weight:700;color:#000;margin-top:1mm}.lbl{font-size:7.5pt;color:#000;margin-top:1mm;line-height:1.4}.must{font-size:8pt;color:#000;font-weight:800;margin-top:1.5mm;line-height:1.4}.warn{font-size:7pt;color:#000;font-weight:700;margin-top:2mm;line-height:1.5;border-top:0.5px solid #000;padding-top:1.5mm}@media print{.np{display:none!important}@page{size:100mm 75mm;margin:0}body{margin:0;padding:0}.card{width:100mm;height:75mm;padding:3mm 4mm}}</style></head><body><div class="np" style="background:#f5f5f5;border-bottom:2px solid #000;padding:12px 16px;margin-bottom:0">
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>พิมพ์ QR</title><style>*{box-sizing:border-box}body{font-family:'Sarabun',sans-serif;background:#fff;margin:0;padding:0;color:#000}.grid{display:block}.card{border:2px solid #000;border-radius:4mm;padding:3mm 4mm;width:100mm;height:75mm;text-align:center;page-break-inside:avoid;page-break-after:always;color:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden;box-sizing:border-box}.card img{width:40mm;height:40mm}.phone{font-size:9pt;font-weight:700;color:#000;margin-top:1.5mm}.phone-wait{font-size:8.5pt;color:#000;margin-top:1.5mm;font-weight:600}.trk{font-size:10pt;font-weight:700;color:#000;margin-top:1mm}.lbl{font-size:7.5pt;color:#000;margin-top:1mm;line-height:1.4}.must{font-size:8pt;color:#000;font-weight:800;margin-top:1.5mm;line-height:1.4}.warn{font-size:7pt;color:#000;font-weight:700;margin-top:2mm;line-height:1.5;border-top:0.5px solid #000;padding-top:1.5mm}@media print{.np{display:none!important}@page{size:100mm 75mm;margin:0}body{margin:0;padding:0}.card{width:100mm;height:75mm;padding:3mm 4mm;border:2px solid #000!important;border-radius:4mm;-webkit-print-color-adjust:exact;print-color-adjust:exact}}</style></head><body><div class="np" style="background:#f5f5f5;border-bottom:2px solid #000;padding:12px 16px;margin-bottom:0">
   <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:10px">
     <button onclick="window.print()" style="padding:12px 28px;font-size:16px;cursor:pointer;background:#000;color:#fff;border:none;border-radius:8px;font-weight:700">🖨️ พิมพ์ QR Code</button>
     <button onclick="window.close()" style="padding:12px 20px;font-size:15px;cursor:pointer;background:#fff;color:#000;border:2px solid #000;border-radius:8px;font-weight:700">✕ ปิด</button>
@@ -1368,12 +1370,15 @@ function App() {
   const markPrinted = (serials) => {
     setSims(prev => {
       const u = prev.map(s => serials.includes(s.serial) ? {...s, printed:true} : s);
+      // บันทึก localStorage ทันที
       lsSet(K_SIMS, JSON.stringify(u));
-      // sync Firebase
-      gsCall({ action: "saveAll", data: JSON.stringify(u) });
+      // sync Firebase แบบ background ไม่บล็อก UI
+      setTimeout(() => {
+        serials.forEach(serial => updateSimInGS(serial, {printed:true}));
+      }, 100);
       return u;
     });
-    toast3(`✅ บันทึกว่าพิมพ์ QR แล้ว ${serials.length} รายการ`);
+    toast3(`✅ ย้ายไปพิมพ์แล้ว ${serials.length} รายการ`);
   };
 
   // ย้ายกลับ "ยังไม่พิมพ์"
