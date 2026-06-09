@@ -941,6 +941,30 @@ function QRMain({ sims, onPreview, bot, chat, onMarkPrinted, onUnmarkPrinted, on
   </div>
 </div>
 <script>
+var PREF_KEY = 'sim_print_prefs';
+function savePrefs() {
+  var prefs = {
+    w: document.getElementById('w').value,
+    h: document.getElementById('h').value,
+    q: document.getElementById('q').value,
+    f: document.getElementById('f').value,
+    orient: document.getElementById('orient').value
+  };
+  try { localStorage.setItem(PREF_KEY, JSON.stringify(prefs)); } catch(e) {}
+}
+function loadPrefs() {
+  try {
+    var saved = localStorage.getItem(PREF_KEY);
+    if (saved) {
+      var p = JSON.parse(saved);
+      if (p.w) document.getElementById('w').value = p.w;
+      if (p.h) document.getElementById('h').value = p.h;
+      if (p.q) document.getElementById('q').value = p.q;
+      if (p.f) document.getElementById('f').value = p.f;
+      if (p.orient) document.getElementById('orient').value = p.orient;
+    }
+  } catch(e) {}
+}
 function applyOrientation() {
   var orient = document.getElementById('orient').value;
   var w = parseFloat(document.getElementById('w').value)||100;
@@ -960,10 +984,8 @@ function updateSize() {
   var q = parseFloat(document.getElementById('q').value)||40;
   var f = parseFloat(document.getElementById('f').value)||8;
   var orient = document.getElementById('orient').value;
-  // ซิงค์ dropdown กับขนาด
   if(w > h && orient === 'portrait') document.getElementById('orient').value = 'landscape';
   if(h > w && orient === 'landscape') document.getElementById('orient').value = 'portrait';
-  // อัปเดต card
   document.querySelectorAll('.card').forEach(function(c){
     c.style.width = w+'mm'; c.style.height = h+'mm';
   });
@@ -975,14 +997,15 @@ function updateSize() {
   classes.forEach(function(cls, i){
     document.querySelectorAll('.'+cls).forEach(function(el){ el.style.fontSize = sizes[i]+'pt'; });
   });
-  // อัปเดต @page
   var ps = document.getElementById('pageStyle');
   if(!ps){ ps = document.createElement('style'); ps.id='pageStyle'; document.head.appendChild(ps); }
   ps.textContent = '@media print{@page{size:'+w+'mm '+h+'mm;margin:0}.card{width:'+w+'mm!important;height:'+h+'mm!important}}';
   var orientLabel = w >= h ? '📄 แนวนอน' : '📋 แนวตั้ง';
   document.getElementById('sizeinfo').textContent = orientLabel+' | '+w+'×'+h+'mm | QR '+q+'mm | ตัวอักษร '+f+'pt';
+  // บันทึกค่าอัตโนมัติทุกครั้งที่เปลี่ยน
+  savePrefs();
 }
-window.onload = function(){ updateSize(); };
+window.onload = function(){ loadPrefs(); updateSize(); };
 <\/script><div class="grid">${cards}</div></body></html>`;
     const blob = new Blob([html],{type:"text/html;charset=utf-8"});
 
@@ -1193,6 +1216,30 @@ function QRManager({ sims, onPreview, bot, chat, onAfterPrint }) {
   </div>
 </div>
 <script>
+var PREF_KEY = 'sim_print_prefs';
+function savePrefs() {
+  var prefs = {
+    w: document.getElementById('w').value,
+    h: document.getElementById('h').value,
+    q: document.getElementById('q').value,
+    f: document.getElementById('f').value,
+    orient: document.getElementById('orient').value
+  };
+  try { localStorage.setItem(PREF_KEY, JSON.stringify(prefs)); } catch(e) {}
+}
+function loadPrefs() {
+  try {
+    var saved = localStorage.getItem(PREF_KEY);
+    if (saved) {
+      var p = JSON.parse(saved);
+      if (p.w) document.getElementById('w').value = p.w;
+      if (p.h) document.getElementById('h').value = p.h;
+      if (p.q) document.getElementById('q').value = p.q;
+      if (p.f) document.getElementById('f').value = p.f;
+      if (p.orient) document.getElementById('orient').value = p.orient;
+    }
+  } catch(e) {}
+}
 function applyOrientation() {
   var orient = document.getElementById('orient').value;
   var w = parseFloat(document.getElementById('w').value)||100;
@@ -1212,10 +1259,8 @@ function updateSize() {
   var q = parseFloat(document.getElementById('q').value)||40;
   var f = parseFloat(document.getElementById('f').value)||8;
   var orient = document.getElementById('orient').value;
-  // ซิงค์ dropdown กับขนาด
   if(w > h && orient === 'portrait') document.getElementById('orient').value = 'landscape';
   if(h > w && orient === 'landscape') document.getElementById('orient').value = 'portrait';
-  // อัปเดต card
   document.querySelectorAll('.card').forEach(function(c){
     c.style.width = w+'mm'; c.style.height = h+'mm';
   });
@@ -1227,14 +1272,15 @@ function updateSize() {
   classes.forEach(function(cls, i){
     document.querySelectorAll('.'+cls).forEach(function(el){ el.style.fontSize = sizes[i]+'pt'; });
   });
-  // อัปเดต @page
   var ps = document.getElementById('pageStyle');
   if(!ps){ ps = document.createElement('style'); ps.id='pageStyle'; document.head.appendChild(ps); }
   ps.textContent = '@media print{@page{size:'+w+'mm '+h+'mm;margin:0}.card{width:'+w+'mm!important;height:'+h+'mm!important}}';
   var orientLabel = w >= h ? '📄 แนวนอน' : '📋 แนวตั้ง';
   document.getElementById('sizeinfo').textContent = orientLabel+' | '+w+'×'+h+'mm | QR '+q+'mm | ตัวอักษร '+f+'pt';
+  // บันทึกค่าอัตโนมัติทุกครั้งที่เปลี่ยน
+  savePrefs();
 }
-window.onload = function(){ updateSize(); };
+window.onload = function(){ loadPrefs(); updateSize(); };
 <\/script><div class="grid">${cards}</div></body></html>`;
     const blob = new Blob([html],{type:"text/html;charset=utf-8"});
     const url = URL.createObjectURL(blob);
