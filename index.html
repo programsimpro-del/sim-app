@@ -1332,41 +1332,183 @@ window.onload = function(){ loadPrefs(); updateSize(); };
 }
 
 // ===== SUMMARY =====
-function Summary({ sims }) {
-  const sm={};
-  sims.forEach(s=>{
-    const k=new Date(s.createdAt).toISOString().slice(0,10);
-    if(!sm[k])sm[k]={a:0,sc:0}; sm[k].a++;
-    if(s.scannedByCustomer){const k2=new Date(s.scannedAt).toISOString().slice(0,10);if(!sm[k2])sm[k2]={a:0,sc:0};sm[k2].sc++;}
+function Summary({ sims, botToken, chatId, simType }) {
+  const [sending, setSending] = useState(false);
+  const [lastSent, setLastSent] = useState("");
+
+  // สรุปข้อมูลวันนี้
+  const todayStr = new Date().toISOString().slice(0,10);
+  const todayScanned = sims.filter(s => s.scannedByCustomer && s.scannedAt &&
+    new Date(s.scannedAt).toISOString().slice(0,10) === todayStr
+  );
+
+  // สรุปรายวัน
+  const sm = {};
+  sims.forEach(s => {
+    const k = new Date(s.createdAt).toISOString().slice(0,10);
+    if (!sm[k]) sm[k] = { added:0, scanned:0 };
+    sm[k].added++;
+    if (s.scannedByCustomer) sm[k].scanned++;
   });
-  const dates=Object.keys(sm).sort().reverse();
+
+  // ส่ง Report ผ่าน Telegram
+  const sendReport = async () => {
+    if (!botToken || !chatId) {
+      alert("กรุณาตั้งค่า Bot Token และ Chat ID ในเมนูตั้งค่าก่อน");
+      return;
+    }
+    setSending(true);
+
+    const now = new Date();
+    const dateStr = now.toLocaleDateString("th-TH", { year:"numeric", month:"long", day:"numeric" });
+    const timeStr = now.toLocaleTimeString("th-TH");
+    const typeName = simType === "free" ? "🎁 ซิมฟรีเดือนแรก" : "📦 ซิมเปล่า";
+
+    // ซิมที่ลงทะเบียนวันนี้
+    const lines = todayScanned.map((s, i) =>
+      `${i+1}. ${s.serial}
+   📞 ${s.phone || "รับหลังลงทะเบียน"}
+   🔢 ซิมหมายเลข: ${s.trackingNo}
+   ⏰ ${s.scannedAt ? new Date(s.scannedAt).toLocaleString("th-TH") : "-"}`
+    ).join("
+
+");
+
+    const msg = `📊 รายงานประจำวัน ${typeName}
+` +
+      `📅 วันที่: ${dateStr} เวลา ${timeStr}
+` +
+      `${"─".repeat(30)}
+` +
+      `✅ ลงทะเบียนวันนี้: ${todayScanned.length} ซิม
+` +
+      `📦 ซิมทั้งหมดในระบบ: ${sims.length} ซิม
+` +
+      `⏳ รอลงทะเบียน: ${sims.filter(s=>!s.scannedByCustomer).length} ซิม
+` +
+      `${"─".repeat(30)}
+` +
+      (todayScanned.length > 0
+        ? `📋 รายการที่ลงทะเบียนวันนี้:
+
+${lines}`
+        : `📋 ยังไม่มีลูกค้าลงทะเบียนวันนี้`);
+
+    try {
+      const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chat_id: chatId, text: msg })
+      });
+      if (res.ok) {
+        setLastSent(timeStr);
+        alert("✅ ส่ง Report สำเร็จแล้วครับ!");
+      } else {
+        alert("❌ ส่งไม่สำเร็จ กรุณาตรวจสอบ Bot Token และ Chat ID");
+      }
+    } catch(e) {
+      alert("❌ เกิดข้อผิดพลาด: " + e.message);
+    }
+    setSending(false);
+  };
+
   return (
     <div style={S.card}>
-      <h3 style={S.sectionTitle}>📊 สรุปยอดรายวัน</h3>
-      {!dates.length&&<div style={{color:"#8b8fa8",textAlign:"center",padding:32}}>ยังไม่มีข้อมูล</div>}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:8}}>
+        <h3 style={{...S.sectionTitle,margin:0}}>📊 สรุปข้อมูล</h3>
+        <button onClick={sendReport} disabled={sending}
+          style={{...S.btnP,opacity:sending?0.6:1,display:"flex",alignItems:"center",gap:6}}>
+          {sending ? "⏳ กำลังส่ง..." : "📤 ส่ง Report Telegram"}
+        </button>
+      </div>
+
+      {lastSent && (
+        <div style={{background:"rgba(5,150,105,0.12)",border:"1px solid rgba(5,150,105,0.3)",borderRadius:10,padding:"8px 14px",marginBottom:12,fontSize:12,color:"#6ee7b7"}}>
+          ✅ ส่ง Report ล่าสุดเวลา {lastSent} น.
+        </div>
+      )}
+
+      {/* สรุปวันนี้ */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:16}}>
+        {[
+          { label:"ลงทะเบียนวันนี้", val:todayScanned.length, color:"#6ee7b7" },
+          { label:"ซิมทั้งหมด",       val:sims.length,          color:"#a5b4fc" },
+          { label:"รอลงทะเบียน",      val:sims.filter(s=>!s.scannedByCustomer).length, color:"#fbbf24" },
+        ].map(item=>(
+          <div key={item.label} style={{background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:12,padding:"12px 8px",textAlign:"center"}}>
+            <div style={{color:item.color,fontSize:26,fontWeight:800}}>{item.val}</div>
+            <div style={{color:"#8b8fa8",fontSize:11,marginTop:4}}>{item.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* รายการที่ลงทะเบียนวันนี้ */}
+      <h4 style={{color:"#e2e8f0",fontSize:13,fontWeight:700,marginBottom:8}}>
+        ✅ ลงทะเบียนวันนี้ ({todayScanned.length} รายการ)
+      </h4>
+      {todayScanned.length === 0 ? (
+        <div style={{textAlign:"center",padding:24,color:"#8b8fa8",fontSize:13}}>ยังไม่มีลูกค้าลงทะเบียนวันนี้</div>
+      ) : (
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          {todayScanned.map((s,i) => (
+            <div key={s.serial} style={{background:"rgba(5,150,105,0.08)",border:"1px solid rgba(5,150,105,0.2)",borderRadius:10,padding:"10px 14px"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                <div>
+                  <div style={{color:"white",fontFamily:"monospace",fontSize:12,fontWeight:700}}>{i+1}. {s.serial}</div>
+                  <div style={{color:"#6ee7b7",fontSize:11,marginTop:2}}>📞 {s.phone || "รับหลังลงทะเบียน"}</div>
+                  <div style={{color:"#a78bfa",fontSize:11,marginTop:2}}>🔢 ซิมหมายเลข: {s.trackingNo}</div>
+                </div>
+                <div style={{color:"#8b8fa8",fontSize:10,textAlign:"right"}}>
+                  {s.scannedAt ? new Date(s.scannedAt).toLocaleTimeString("th-TH") : ""}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ตารางรายวัน */}
+      <h4 style={{color:"#e2e8f0",fontSize:13,fontWeight:700,margin:"16px 0 8px"}}>📅 สรุปรายวัน</h4>
       <div style={{overflowX:"auto"}}>
-        <table style={S.table}>
-          <thead><tr>{["วันที่","ซิมที่เพิ่ม","สถานะ","อัตรา"].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
+        <table style={{width:"100%",borderCollapse:"collapse"}}>
+          <thead>
+            <tr>{["วันที่","เพิ่มซิม","ลงทะเบียนแล้ว"].map(h=><th key={h} style={S.th}>{h}</th>)}</tr>
+          </thead>
           <tbody>
-            {dates.map((d,i)=>{
-              const row=sm[d],rate=row.a>0?((row.sc/row.a)*100).toFixed(0):0;
-              return (<tr key={d} style={{background:i%2===0?"rgba(255,255,255,0.02)":"transparent"}}>
-                <td style={S.td}>{new Date(d).toLocaleDateString("th-TH",{year:"numeric",month:"long",day:"numeric"})}</td>
-                <td style={{...S.td,color:"#a5b4fc"}}>{row.a}</td>
-                <td style={{...S.td,color:"#6ee7b7"}}>{row.sc}</td>
-                <td style={S.td}><div style={{display:"flex",alignItems:"center",gap:6}}><div style={{height:6,width:70,background:"rgba(255,255,255,0.1)",borderRadius:3,overflow:"hidden"}}><div style={{height:"100%",width:`${rate}%`,background:"linear-gradient(90deg,#4f46e5,#a78bfa)",borderRadius:3}}/></div><span style={{fontSize:12,color:"#8b8fa8"}}>{rate}%</span></div></td>
-              </tr>);
-            })}
+            {Object.entries(sm).sort((a,b)=>b[0].localeCompare(a[0])).map(([date,v])=>(
+              <tr key={date} style={{background:date===todayStr?"rgba(5,150,105,0.08)":"transparent"}}>
+                <td style={{...S.td,color:date===todayStr?"#6ee7b7":"#e2e8f0"}}>{date}</td>
+                <td style={{...S.td,textAlign:"center"}}>{v.added}</td>
+                <td style={{...S.td,textAlign:"center",color:"#6ee7b7"}}>{v.scanned}</td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
     </div>
   );
 }
+// ===== SETTINGS =====
+function Settings({ botToken, chatId, setBotToken, setChatId, onSave }) {
+  return (
+    <div style={S.card}>
+      <h3 style={S.sectionTitle}>⚙️ ตั้งค่า Telegram</h3>
+      <div style={{marginBottom:12}}>
+        <div style={{color:"#94a3b8",fontSize:12,marginBottom:6}}>Bot Token</div>
+        <input style={S.input} value={botToken} onChange={e=>setBotToken(e.target.value)} placeholder="8965070997:AAFB-..."/>
+      </div>
+      <div style={{marginBottom:16}}>
+        <div style={{color:"#94a3b8",fontSize:12,marginBottom:6}}>Chat ID</div>
+        <input style={S.input} value={chatId} onChange={e=>setChatId(e.target.value)} placeholder="8795404772"/>
+      </div>
+      <button style={S.btnP} onClick={()=>{saveBot(botToken);saveChat(chatId);onSave();}}>💾 บันทึก</button>
+    </div>
+  );
+}
 
-// ===== MAIN APP =====
+// ===== APP =====
 function App() {
-  const [simType, setSimType] = useState("plain"); // "plain" | "free"
+  const [simType, setSimType] = useState("plain");
   const [simsPlain, setSimsPlain] = useState([]);
   const [simsFree, setSimsFree] = useState([]);
   const [botToken, setBotToken] = useState("");
@@ -1376,7 +1518,6 @@ function App() {
   const [modal, setModal] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // sims ที่ active ตาม simType
   const sims = simType === "plain" ? simsPlain : simsFree;
   const setSims = (fn) => {
     if (simType === "plain") setSimsPlain(fn);
@@ -1394,97 +1535,69 @@ function App() {
     });
   }, []);
 
-  const toast3 = (msg,type="ok") => { setToast({msg,type}); setTimeout(()=>setToast(null),3000); };
+  const toast3 = (msg, type="ok") => { setToast({msg,type}); setTimeout(()=>setToast(null),3000); };
 
-  const addSim = (serial, reservedTracking = null, phone = null, simCode = "") => {
+  const addSim = (serial, reservedTracking=null, phone=null, simCode="") => {
     if (sims.find(s=>s.serial===serial)) { toast3(`⚠️ ${serial} มีอยู่แล้ว`,"warn"); return; }
     const rawTracking = reservedTracking || genTracking(new Set(sims.map(s=>s.trackingNo)));
     const trackingNo = simCode ? `${simCode}${rawTracking}` : rawTracking;
     const ns = {serial,trackingNo,phone:phone||"",simCode:simCode||"",simType,scannedByCustomer:false,scannedAt:null,createdAt:Date.now(),printed:false};
-    setSims(prev => {
-      const u = [ns, ...prev];
-      saveSimsByType(u, simType);
-      addSimToGS(ns, simType);
-      return u;
-    });
+    setSims(prev => { const u=[ns,...prev]; saveSimsByType(u,simType); addSimToGS(ns,simType); return u; });
     toast3(`✅ เพิ่มซิม ${serial} (เลขติดตาม: ${trackingNo})`);
   };
 
   const delSim = (serial) => {
-    if(!confirm(`ลบซิม ${serial} ?`)) return;
-    setSims(prev => {
-      const u = prev.filter(s=>s.serial!==serial);
-      saveSimsByType(u, simType);
-      deleteSimFromGS(serial, simType);
-      return u;
-    });
+    if (!confirm(`ลบซิม ${serial} ?`)) return;
+    setSims(prev => { const u=prev.filter(s=>s.serial!==serial); saveSimsByType(u,simType); deleteSimFromGS(serial,simType); return u; });
     toast3("🗑️ ลบแล้ว","warn");
   };
 
-  // อัปเดตเบอร์โทร
   const updatePhone = (serial, phone) => {
-    setSims(prev => {
-      const u = prev.map(s => s.serial===serial ? {...s, phone} : s);
-      saveSimsByType(u, simType);
-      updateSimInGS(serial, {phone}, simType);
-      return u;
-    });
-    toast3(phone ? `✅ บันทึกเบอร์ ${phone} แล้ว` : "✅ ลบเบอร์แล้ว");
+    setSims(prev => { const u=prev.map(s=>s.serial===serial?{...s,phone}:s); saveSimsByType(u,simType); updateSimInGS(serial,{phone},simType); return u; });
+    toast3(phone?`✅ บันทึกเบอร์ ${phone}`:"✅ ลบเบอร์แล้ว");
   };
 
-  // มาร์คว่าพิมพ์ QR แล้ว
   const markPrinted = (serials) => {
     setSims(prev => {
-      const u = prev.map(s => serials.includes(s.serial) ? {...s, printed:true} : s);
+      const u = prev.map(s=>serials.includes(s.serial)?{...s,printed:true}:s);
       const cfg = SIM_PATHS[simType];
       lsSet(cfg.lsKey, JSON.stringify(u));
-      setTimeout(() => {
-        serials.forEach(serial => updateSimInGS(serial, {printed:true}, simType));
-      }, 100);
+      setTimeout(()=>{ serials.forEach(serial=>updateSimInGS(serial,{printed:true},simType)); },100);
       return u;
     });
     toast3(`✅ ย้ายไปพิมพ์แล้ว ${serials.length} รายการ`);
   };
 
-  // ย้ายกลับ "ยังไม่พิมพ์"
   const unmarkPrinted = (serial) => {
-    setSims(prev => {
-      const u = prev.map(s => s.serial===serial ? {...s, printed:false} : s);
-      saveSimsByType(u, simType);
-      updateSimInGS(serial, {printed:false}, simType);
-      return u;
-    });
-    toast3("↩️ ย้ายกลับ ยังไม่พิมพ์ แล้ว");
+    setSims(prev => { const u=prev.map(s=>s.serial===serial?{...s,printed:false}:s); saveSimsByType(u,simType); updateSimInGS(serial,{printed:false},simType); return u; });
+    toast3("↩️ ย้ายกลับยังไม่พิมพ์แล้ว");
   };
 
   const markScanned = (serial) => {
     const now = Date.now();
-    setSims(prev=>{
-      const u=prev.map(s=>{
-        if(s.serial!==serial) return s;
-        const phoneInfo = s.phone ? `\n📞 เบอร์โทร: ${s.phone}` : `\n📞 เบอร์โทร: รับหลังลงทะเบียนซิม`;
-        tgSend(botToken,chatId,`🔔 ลูกค้าสแกน QR Code แล้ว!\n📋 เลขซีเรียลซิม: ${s.serial}${phoneInfo}\n🔢 เลขติดตาม: ${s.trackingNo}\n⏰ เวลา: ${new Date(now).toLocaleString("th-TH")}\n\n✅ กรุณาอัปเดตสถานะในแอพ`);
-        updateSimInGS(s.serial, {scannedByCustomer:true, scannedAt:now}, simType);
+    setSims(prev => {
+      return prev.map(s => {
+        if (s.serial !== serial) return s;
+        tgSend(botToken,chatId,`✅ ลูกค้าสแกน QR Code แล้ว!\n📋 เลขซีเรียลซิม: ${s.serial}\n📞 เบอร์โทร: ${s.phone||"รับหลังลงทะเบียนซิม"}\n🔢 เลขติดตาม: ${s.trackingNo}\n⏰ เวลา: ${new Date(now).toLocaleString("th-TH")}`);
+        updateSimInGS(s.serial,{scannedByCustomer:true,scannedAt:now},simType);
         return {...s,scannedByCustomer:true,scannedAt:now};
       });
-      lsSet(K_SIMS, JSON.stringify(u));
-      return u;
     });
     toast3("✅ อัปเดตสถานะแล้ว");
   };
 
-  const today = sims.filter(s=>s.scannedByCustomer&&new Date(s.scannedAt).toISOString().slice(0,10)===todayKey()).length;
-  const pendingCount = sims.filter(s=>!s.scannedByCustomer).length;
-  const scannedCount = sims.filter(s=>s.scannedByCustomer).length;
+  const pendingCount  = sims.filter(s=>!s.scannedByCustomer).length;
+  const scannedCount  = sims.filter(s=>s.scannedByCustomer).length;
+  const todayKey = () => new Date().toISOString().slice(0,10);
 
   const tabs = [
-    {id:"scanner",  label:"📷 ยิงซิม"},
-    {id:"qr",       label:`🔲 QR Code Serial Sim (${sims.length})`},
-    {id:"pending",  label:`⏳ รอสแกน (${pendingCount})`},
-    {id:"scanned",  label:`📋 ลงทะเบียนแล้ว (${scannedCount})`},
-    {id:"list",     label:"📋 รายการทั้งหมด"},
-    {id:"summary",  label:"📊 สรุป"},
-    {id:"settings", label:"⚙️ ตั้งค่า"},
+    {id:"scanner", label:"📷 ยิงซิม"},
+    {id:"qr",      label:`🔲 QR Code Serial Sim (${sims.length})`},
+    {id:"pending", label:`⏳ รอสแกน (${pendingCount})`},
+    {id:"scanned", label:`📋 ลงทะเบียนแล้ว (${scannedCount})`},
+    {id:"list",    label:"📋 รายการทั้งหมด"},
+    {id:"summary", label:"📊 สรุป"},
+    {id:"settings",label:"⚙️ ตั้งค่า"},
   ];
 
   if (loading) return (
@@ -1499,10 +1612,30 @@ function App() {
 
   return (
     <div style={S.root}>
-      {/* ===== SIM TYPE SWITCHER ===== */}
+      {toast&&<div style={{position:"fixed",top:20,right:16,zIndex:9999,background:toast.type==="ok"?"#059669":"#d97706",color:"white",padding:"10px 18px",borderRadius:12,fontWeight:600,fontSize:14,boxShadow:"0 4px 20px rgba(0,0,0,0.4)",animation:"fadeIn 0.3s"}}>{toast.msg}</div>}
+      {modal&&<QRCard sim={modal} bot={botToken} chat={chatId} onClose={()=>setModal(null)}/>}
+
+      {/* Header */}
+      <div style={{background:"rgba(15,15,40,0.95)",backdropFilter:"blur(20px)",borderBottom:"1px solid rgba(255,255,255,0.08)",padding:"12px 16px",display:"flex",alignItems:"center",gap:12,position:"sticky",top:0,zIndex:100}}>
+        <div style={{width:40,height:40,background:"linear-gradient(135deg,#4f46e5,#7c3aed)",borderRadius:12,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>📶</div>
+        <div style={{flex:1}}>
+          <div style={{color:"white",fontWeight:800,fontSize:16}}>SIM Tracker</div>
+          <div style={{color:"#8b8fa8",fontSize:11}}>ระบบติดตามการเปิดใช้งานซิม</div>
+        </div>
+        <div style={{textAlign:"center"}}>
+          <div style={{color:"#a78bfa",fontWeight:800,fontSize:20}}>{sims.length}</div>
+          <div style={{color:"#8b8fa8",fontSize:10}}>ซิมทั้งหมด</div>
+        </div>
+        <div style={{textAlign:"center"}}>
+          <div style={{color:"#6ee7b7",fontWeight:800,fontSize:20}}>{sims.filter(s=>s.scannedByCustomer&&new Date(s.scannedAt||0).toISOString().slice(0,10)===todayKey()).length}</div>
+          <div style={{color:"#8b8fa8",fontSize:10}}>สแกนวันนี้</div>
+        </div>
+      </div>
+
+      {/* SimType Switcher */}
       <div style={{background:"rgba(0,0,0,0.3)",borderBottom:"1px solid rgba(255,255,255,0.08)",padding:"8px 12px",display:"flex",gap:8,alignItems:"center"}}>
         <span style={{color:"#94a3b8",fontSize:12,fontWeight:600}}>ประเภทซิม:</span>
-        {Object.entries(SIM_PATHS).map(([key, cfg])=>(
+        {Object.entries(SIM_PATHS).map(([key,cfg])=>(
           <button key={key} onClick={()=>{setSimType(key);setTab("scanner");}}
             style={{padding:"7px 18px",border:"none",borderRadius:20,cursor:"pointer",fontFamily:"inherit",fontWeight:700,fontSize:13,
               background:simType===key?cfg.color:"rgba(255,255,255,0.08)",
@@ -1516,67 +1649,33 @@ function App() {
             </span>}
           </button>
         ))}
-        <div style={{marginLeft:"auto",padding:"4px 10px",borderRadius:10,fontSize:11,fontWeight:700,
-          background:simType==="plain"?"rgba(79,70,229,0.2)":"rgba(5,150,105,0.2)",
-          color:simType==="plain"?"#a78bfa":"#6ee7b7",
-          border:`1px solid ${simType==="plain"?"rgba(79,70,229,0.4)":"rgba(5,150,105,0.4)"}`}}>
-          {SIM_PATHS[simType].emoji} กำลังดู: {SIM_PATHS[simType].label}
-        </div>
       </div>
 
-      {toast&&<div style={{position:"fixed",top:20,right:16,background:toast.type==="warn"?"#92400e":"#064e3b",color:"white",padding:"11px 18px",borderRadius:10,zIndex:9999,fontSize:14,maxWidth:300,boxShadow:"0 4px 20px rgba(0,0,0,.5)",animation:"fadeIn 0.3s"}}>{toast.msg}</div>}
-      {modal&&<CustomerModal sim={modal} onClose={()=>setModal(null)}/>}
-
-      <div style={S.header}>
-        <div style={{display:"flex",alignItems:"center",gap:10}}>
-          <div style={{width:38,height:38,borderRadius:10,background:"linear-gradient(135deg,#4f46e5,#a78bfa)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>📶</div>
-          <div>
-            <div style={{color:"white",fontWeight:800,fontSize:17}}>SIM Tracker</div>
-            <div style={{color:"#8b8fa8",fontSize:11}}>ระบบติดตามการเปิดใช้งานซิม</div>
-          </div>
-        </div>
-        <div style={{display:"flex",gap:16}}>
-          <div style={{textAlign:"center"}}><div style={{color:"#a78bfa",fontWeight:700,fontSize:20}}>{sims.length}</div><div style={{color:"#8b8fa8",fontSize:10}}>ซิมทั้งหมด</div></div>
-          <div style={{textAlign:"center"}}><div style={{color:"#6ee7b7",fontWeight:700,fontSize:20}}>{today}</div><div style={{color:"#8b8fa8",fontSize:10}}>สแกนวันนี้</div></div>
-        </div>
+      {/* Tabs */}
+      <div style={{display:"flex",overflowX:"auto",borderBottom:"1px solid rgba(255,255,255,0.08)",background:"rgba(15,15,40,0.6)"}}>
+        {tabs.map(t=>(
+          <button key={t.id} onClick={()=>setTab(t.id)}
+            style={{padding:"12px 14px",border:"none",borderBottom:tab===t.id?"2px solid #a78bfa":"2px solid transparent",background:"transparent",color:tab===t.id?"#a78bfa":"#64748b",cursor:"pointer",fontFamily:"inherit",fontWeight:700,fontSize:12,whiteSpace:"nowrap"}}>
+            {t.label}
+          </button>
+        ))}
       </div>
 
-      <div style={S.tabBar}>
-        {tabs.map(t=><button key={t.id} onClick={()=>setTab(t.id)} style={{...S.tab,background:tab===t.id?"rgba(79,70,229,0.3)":"transparent",color:tab===t.id?"#a78bfa":"#8b8fa8",borderBottom:tab===t.id?"2px solid #4f46e5":"2px solid transparent"}}>{t.label}</button>)}
-      </div>
-
-      <div style={S.content}>
-        {tab==="scanner"&&(
-          <>
-            <Scanner onScan={addSim} sims={sims}/>
-            {sims.length>0&&(
-              <div style={S.card}>
-                <h3 style={S.sectionTitle}>🕐 เพิ่มล่าสุด</h3>
-                {sims.slice(0,5).map(s=>(
-                  <div key={s.serial} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"9px 0",borderBottom:"1px solid rgba(255,255,255,0.06)"}}>
-                    <div>
-                      <div style={{color:"white",fontFamily:"monospace",fontSize:13}}>{s.serial}</div>
-                      <div style={{color:"#a78bfa",fontSize:11,marginTop:2}}>เลขติดตาม: {s.trackingNo}</div>
-                    </div>
-                    <button onClick={()=>setModal(s)} style={{...S.btnS,fontSize:11,padding:"3px 9px"}}>👁 ทดสอบ</button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </>
-        )}
+      <div style={{padding:"0 0 80px"}}>
+        {tab==="scanner"&&<Scanner onScan={addSim} sims={sims}/>}
         {tab==="qr"&&<QRMain sims={sims} onPreview={s=>setModal(s)} bot={botToken} chat={chatId} onMarkPrinted={markPrinted} onUnmarkPrinted={unmarkPrinted} onDeleteSim={delSim}/>}
         {tab==="pending"&&<PendingTab sims={sims} onPreview={s=>setModal(s)} onMarkScanned={markScanned}/>}
         {tab==="scanned"&&<ScannedTab sims={sims}/>}
         {tab==="list"&&<SimList sims={sims} onDelete={delSim} onUpdatePhone={updatePhone}/>}
-        {tab==="summary"&&<Summary sims={sims}/>}
+        {tab==="summary"&&<Summary sims={sims} botToken={botToken} chatId={chatId} simType={simType}/>}
         {tab==="settings"&&<Settings botToken={botToken} chatId={chatId} setBotToken={setBotToken} setChatId={setChatId} onSave={()=>toast3("✅ บันทึกแล้ว")}/>}
       </div>
     </div>
   );
 }
 
-ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<App/>);
 </script>
 </body>
 </html>
