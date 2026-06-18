@@ -553,6 +553,51 @@ function App(){
       .catch(()=>{clearTimeout(timeout);setLoading(false);});
   },[]);
 
+  // Auto-poll Firebase ทุก 15 วินาที เพื่อตรวจสอบลูกค้าสแกน QR
+  const newScansRef=useRef([]);
+  useEffect(()=>{
+    const poll=async()=>{
+      try{
+        const [pd,fd]=await Promise.all([
+          Promise.race([fbG(TYPES.plain.path),new Promise((_,r)=>setTimeout(()=>r("to"),5000))]),
+          Promise.race([fbG(TYPES.free.path),new Promise((_,r)=>setTimeout(()=>r("to"),5000))])
+        ]);
+        const applyUpdate=(fbData,setFn,lsKey)=>{
+          if(!fbData||typeof fbData!=="object"||fbData.error)return;
+          const fb=Object.values(fbData).filter(s=>s&&s.serial);
+          setFn(prev=>{
+            let changed=false;
+            const found=[];
+            const next=prev.map(s=>{
+              const remote=fb.find(r=>r.serial===s.serial);
+              if(remote&&remote.scannedByCustomer&&!s.scannedByCustomer){
+                changed=true;
+                found.push({...s,scannedByCustomer:true,scannedAt:remote.scannedAt||Date.now()});
+                return{...s,scannedByCustomer:true,scannedAt:remote.scannedAt||Date.now()};
+              }
+              return s;
+            });
+            if(changed){
+              lsS(lsKey,JSON.stringify(next));
+              newScansRef.current=[...newScansRef.current,...found];
+            }
+            return changed?next:prev;
+          });
+        };
+        applyUpdate(pd,setPSims,TYPES.plain.ls);
+        applyUpdate(fd,setFSims,TYPES.free.ls);
+        if(newScansRef.current.length>0){
+          const s=newScansRef.current[0];
+          newScansRef.current=[];
+          setToast({msg:"🔔 ลูกค้าสแกนซิมหมายเลข "+s.trackingNo+" แล้ว!",type:"ok"});
+          setTimeout(()=>setToast(null),5000);
+        }
+      }catch(e){}
+    };
+    const iv=setInterval(poll,15000);
+    return()=>clearInterval(iv);
+  },[]);
+
   const t3=(msg,type)=>{setToast({msg,type:"ok",...(type?{type}:{})});setTimeout(()=>setToast(null),3000);};
 
   const addSim=(serial,rsv,phone,code)=>{
@@ -630,7 +675,7 @@ function App(){
 
       <div style={{background:"rgba(15,15,40,0.95)",backdropFilter:"blur(20px)",borderBottom:"1px solid rgba(255,255,255,0.08)",padding:"12px 16px",display:"flex",alignItems:"center",gap:12,position:"sticky",top:0,zIndex:100}}>
         <div style={{width:40,height:40,background:"linear-gradient(135deg,#4f46e5,#7c3aed)",borderRadius:12,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>📶</div>
-        <div style={{flex:1}}><div style={{color:"white",fontWeight:800,fontSize:16}}>SIM Tracker</div><div style={{color:"#8b8fa8",fontSize:11}}>ระบบติดตามการเปิดใช้งานซิม</div></div>
+        <div style={{flex:1}}><div style={{color:"white",fontWeight:800,fontSize:16}}>SIM Tracker</div><div style={{color:"#8b8fa8",fontSize:11,display:"flex",alignItems:"center",gap:4}}><span style={{width:6,height:6,borderRadius:"50%",background:"#6ee7b7",display:"inline-block",boxShadow:"0 0 6px #6ee7b7"}}></span>ซิงค์อัตโนมัติทุก 15 วิ</div></div>
         <div style={{textAlign:"center"}}><div style={{color:"#a78bfa",fontWeight:800,fontSize:20}}>{sims.length}</div><div style={{color:"#8b8fa8",fontSize:10}}>ซิมทั้งหมด</div></div>
         <div style={{textAlign:"center"}}><div style={{color:"#6ee7b7",fontWeight:800,fontSize:20}}>{sims.filter(s=>s.scannedByCustomer&&new Date(s.scannedAt||0).toISOString().slice(0,10)===todayS()).length}</div><div style={{color:"#8b8fa8",fontSize:10}}>สแกนวันนี้</div></div>
       </div>
