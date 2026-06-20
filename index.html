@@ -33,7 +33,7 @@ const TYPES={
   plain:{path:"/sims_plain",ls:"sim_plain_v1",label:"ซิมเปล่า",emoji:"📦",color:"#4f46e5"},
   free:{path:"/sims_free",ls:"sim_free_v1",label:"ซิมฟรีเดือนแรก",emoji:"🎁",color:"#059669"}
 };
-const toKey=s=>String(s).replace(/[.#$[\]]/g,"_");
+const toKey=s=>String(s).replace(/[.#$[\]\/]/g,"_");
 const lsG=k=>{try{return localStorage.getItem(k)}catch(e){return null}};
 const lsS=(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}};
 const fbG=p=>fetch(FB+p+".json").then(r=>r.json());
@@ -48,7 +48,16 @@ const loadT=async t=>{
     const d=await Promise.race([fbG(cfg.path),new Promise((_,r)=>setTimeout(()=>r("to"),3000))]);
     if(d&&typeof d==="object"&&!d.error){
       const fb=Object.values(d).filter(s=>s&&s.serial);
-      if(fb.length>0){lsS(cfg.ls,JSON.stringify(fb));return fb;}
+      if(fb.length>0){
+        // Merge: ใช้ข้อมูล Firebase เป็นหลัก แต่ถ้า localStorage มี printed:true ให้รักษาไว้
+        const locMap={};loc.forEach(s=>{locMap[s.serial]=s;});
+        const merged=fb.map(s=>{
+          const ls=locMap[s.serial];
+          if(!ls)return s;
+          return{...s,printed:s.printed||ls.printed||false,scannedByCustomer:s.scannedByCustomer||ls.scannedByCustomer||false};
+        });
+        lsS(cfg.ls,JSON.stringify(merged));return merged;
+      }
     }
   }catch(e){}
   return loc;
@@ -553,50 +562,69 @@ function App(){
       .catch(()=>{clearTimeout(timeout);setLoading(false);});
   },[]);
 
-  // Auto-poll Firebase ทุก 15 วินาที เพื่อตรวจสอบลูกค้าสแกน QR
-  const newScansRef=useRef([]);
+  // Auto-poll Telegram getUpdates ทุก 10 วินาที — ตรวจจับข้อความที่ลูกค้าสแกน QR
+  const tgOffsetRef=useRef(parseInt(lsG("tg_offset")||"0"));
+  const botRef=useRef(bot);
+  const chatRef=useRef(chat);
+  useEffect(()=>{botRef.current=bot;},[bot]);
+  useEffect(()=>{chatRef.current=chat;},[chat]);
+
+  const applyScanned=(serial)=>{
+    const now=Date.now();
+    let found=null;
+    const applyType=(setFn,t)=>{
+      setFn(prev=>{
+        let hit=false;
+        const next=prev.map(s=>{
+          if(s.serial!==serial||s.scannedByCustomer)return s;
+          hit=true;
+          found={...s,scannedByCustomer:true,scannedAt:now};
+          updFB(serial,{scannedByCustomer:true,scannedAt:now},t).catch(()=>{});
+          return{...s,scannedByCustomer:true,scannedAt:now};
+        });
+        if(hit)lsS(TYPES[t].ls,JSON.stringify(next));
+        return hit?next:prev;
+      });
+    };
+    applyType(setPSims,"plain");
+    applyType(setFSims,"free");
+    return found;
+  };
+
   useEffect(()=>{
+    if(!bot)return;
     const poll=async()=>{
       try{
-        const [pd,fd]=await Promise.all([
-          Promise.race([fbG(TYPES.plain.path),new Promise((_,r)=>setTimeout(()=>r("to"),5000))]),
-          Promise.race([fbG(TYPES.free.path),new Promise((_,r)=>setTimeout(()=>r("to"),5000))])
-        ]);
-        const applyUpdate=(fbData,setFn,lsKey)=>{
-          if(!fbData||typeof fbData!=="object"||fbData.error)return;
-          const fb=Object.values(fbData).filter(s=>s&&s.serial);
-          setFn(prev=>{
-            let changed=false;
-            const found=[];
-            const next=prev.map(s=>{
-              const remote=fb.find(r=>r.serial===s.serial);
-              if(remote&&remote.scannedByCustomer&&!s.scannedByCustomer){
-                changed=true;
-                found.push({...s,scannedByCustomer:true,scannedAt:remote.scannedAt||Date.now()});
-                return{...s,scannedByCustomer:true,scannedAt:remote.scannedAt||Date.now()};
+        const offset=tgOffsetRef.current;
+        const res=await fetch("https://api.telegram.org/bot"+botRef.current+"/getUpdates?timeout=0&offset="+offset);
+        const data=await res.json();
+        if(!data.ok||!data.result?.length)return;
+        let maxId=offset;
+        for(const upd of data.result){
+          if(upd.update_id>=maxId)maxId=upd.update_id+1;
+          const txt=upd.message?.text||upd.channel_post?.text||"";
+          const m=txt.match(/เลขซีเรียลซิม[: \t]*([^\s\n]+)/)||txt.match(/serial[: ]+([^\s\n]+)/i)||txt.match(/s=([^&\s]+)/);
+          if(m&&m[1]){
+            const serial=m[1].trim();
+            setTimeout(()=>{
+              const s=applyScanned(serial);
+              if(s){
+                setToast({msg:"🔔 ลูกค้าสแกนซิมหมายเลข "+s.trackingNo+" แล้ว ✅",type:"ok"});
+                setTimeout(()=>setToast(null),6000);
               }
-              return s;
-            });
-            if(changed){
-              lsS(lsKey,JSON.stringify(next));
-              newScansRef.current=[...newScansRef.current,...found];
-            }
-            return changed?next:prev;
-          });
-        };
-        applyUpdate(pd,setPSims,TYPES.plain.ls);
-        applyUpdate(fd,setFSims,TYPES.free.ls);
-        if(newScansRef.current.length>0){
-          const s=newScansRef.current[0];
-          newScansRef.current=[];
-          setToast({msg:"🔔 ลูกค้าสแกนซิมหมายเลข "+s.trackingNo+" แล้ว!",type:"ok"});
-          setTimeout(()=>setToast(null),5000);
+            },100);
+          }
+        }
+        if(maxId!==offset){
+          tgOffsetRef.current=maxId;
+          lsS("tg_offset",String(maxId));
         }
       }catch(e){}
     };
-    const iv=setInterval(poll,15000);
+    poll();
+    const iv=setInterval(poll,10000);
     return()=>clearInterval(iv);
-  },[]);
+  },[bot]);
 
   const t3=(msg,type)=>{setToast({msg,type:"ok",...(type?{type}:{})});setTimeout(()=>setToast(null),3000);};
 
@@ -605,7 +633,7 @@ function App(){
     const raw=rsv||genNo(new Set(sims.map(s=>s.trackingNo)));
     const trk=code?code+raw:raw;
     const ns={serial,trackingNo:trk,phone:phone||"",simCode:code||"",simType:st,scannedByCustomer:false,scannedAt:null,createdAt:Date.now(),printed:false};
-    setSims(prev=>{const u=[ns,...prev];saveT(u,st);addFB(ns,st);return u;});
+    setSims(prev=>{const u=[ns,...prev];lsS(TYPES[st].ls,JSON.stringify(u));addFB(ns,st);return u;});
     t3("✅ เพิ่มซิม (เลขติดตาม: "+trk+")");
   };
 
@@ -624,7 +652,7 @@ function App(){
     setSims(prev=>{
       const u=prev.map(s=>serials.includes(s.serial)?{...s,printed:true}:s);
       lsS(TYPES[st].ls,JSON.stringify(u));
-      setTimeout(()=>serials.forEach(s=>updFB(s,{printed:true},st)),100);
+      serials.forEach(s=>updFB(s,{printed:true},st));
       return u;
     });
     t3("✅ ย้ายไปพิมพ์แล้ว "+serials.length+" รายการ");
@@ -639,7 +667,7 @@ function App(){
     const now=Date.now();
     setSims(prev=>prev.map(s=>{
       if(s.serial!==serial)return s;
-      tgSend(bot,chat,"🔔 ลูกค้าสแกน QR Code แล้ว!\n📋 เลขซีเรียลซิม: "+s.serial+"\n📞 เบอร์โทร: "+(s.phone||"รับหลังลงทะเบียนซิม")+"\n🔢 เลขติดตาม: "+s.trackingNo+"\n⏰ เวลา: "+new Date(now).toLocaleString("th-TH")+"\n\n✅ กรุณาอัปเดตสถานะในแอพ");
+      tgSend(bot,chat,"🔔 ลูกค้าสแกน QR Code แล้ว!\n📋 เลขซีเรียลซิม: "+s.serial+"\n📞 เบอร์โทร: "+(s.phone||"รับหลังลงทะเบียนซิม")+"\n🔢 เลขติดตาม: "+s.trackingNo+"\n⏰ เวลา: "+new Date(now).toLocaleString("th-TH")+"\n✅ ระบบอัปเดตสถานะอัตโนมัติแล้ว");
       updFB(s.serial,{scannedByCustomer:true,scannedAt:now},st);
       return{...s,scannedByCustomer:true,scannedAt:now};
     }));
