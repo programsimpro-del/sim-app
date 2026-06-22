@@ -351,7 +351,8 @@ function QRMain({sims,bot,chat,onMarkPrinted,onUnmarkPrinted,onDeleteSim,onPrevi
         {sub==="done"&&<button onClick={()=>{sel.forEach(s=>onUnmarkPrinted(s));setSel([]);}} style={{...C.btnS,flex:1,color:"#f59e0b",border:"1px solid rgba(245,158,11,0.4)"}}>↩️ ย้ายกลับ</button>}
       </div>}
       {fl.length===0&&<div style={{textAlign:"center",padding:36,color:"#8b8fa8"}}><div style={{fontSize:36,marginBottom:8}}>{sub==="new"?"🎉":"📭"}</div><div>{sub==="new"?"พิมพ์ QR ครบทุกซิมแล้ว":"ยังไม่มีซิมที่พิมพ์แล้ว"}</div></div>}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(145px,1fr))",gap:10}}>
+      {/* แท็บ ยังไม่พิมพ์ — แสดง QR */}
+      {sub==="new"&&<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(145px,1fr))",gap:10}}>
         {fl.map(s=>(
           <div key={s.serial} onClick={()=>tog(s.serial)}
             style={{background:sel.includes(s.serial)?"rgba(79,70,229,0.2)":"rgba(255,255,255,0.04)",
@@ -361,10 +362,10 @@ function QRMain({sims,bot,chat,onMarkPrinted,onUnmarkPrinted,onDeleteSim,onPrevi
             <div style={{background:"#fff",borderRadius:8,padding:4,display:"inline-block",marginBottom:4}}>
               <QR text={makeURL(s.serial,s.trackingNo,bot,chat,s.phone||"")} size={110}/>
             </div>
-            {s.phone?<div style={{color:"#000",fontSize:10,fontWeight:700}}>📞 {s.phone}</div>:<div style={{color:"#000",fontSize:9}}>📞 รับหลังลงทะเบียน</div>}
+            {s.phone?<div style={{color:"#6b7280",fontSize:10,fontWeight:700}}>📞 {s.phone}</div>:<div style={{color:"#6b7280",fontSize:9}}>📞 รับหลังลงทะเบียน</div>}
             <div style={{display:"flex",alignItems:"center",gap:3,justifyContent:"center",marginTop:2}}>
               {s.simCode&&<span style={{background:s.simCode==="K"?"#4f46e5":"#059669",color:"white",fontSize:9,fontWeight:800,borderRadius:3,padding:"1px 4px"}}>{s.simCode}</span>}
-              <span style={{color:"#000",fontSize:10,fontWeight:700}}>ซิมหมายเลข: {s.trackingNo}{s.simType==="free"?" (ฟรี)":""}</span>
+              <span style={{color:"#e2e8f0",fontSize:10,fontWeight:700}}>ซิมหมายเลข: {s.trackingNo}</span>
             </div>
             <div style={{display:"flex",gap:4,marginTop:6}}>
               <button onClick={e=>{e.stopPropagation();onPreview(s);}} style={{...C.btnS,flex:1,fontSize:10,padding:"4px 0"}}>👁 ดู</button>
@@ -372,7 +373,33 @@ function QRMain({sims,bot,chat,onMarkPrinted,onUnmarkPrinted,onDeleteSim,onPrevi
             </div>
           </div>
         ))}
-      </div>
+      </div>}
+
+      {/* แท็บ พิมพ์แล้ว — แสดงเป็นรายการ ไม่ render QR ให้เร็ว */}
+      {sub==="done"&&<div>
+        {fl.map(s=>(
+          <div key={s.serial} onClick={()=>tog(s.serial)}
+            style={{background:sel.includes(s.serial)?"rgba(79,70,229,0.12)":"rgba(255,255,255,0.03)",
+              border:"1px solid "+(sel.includes(s.serial)?"#4f46e5":"rgba(255,255,255,0.07)"),
+              borderRadius:10,padding:"10px 14px",marginBottom:6,cursor:"pointer",display:"flex",alignItems:"center",gap:10}}>
+            <div style={{width:18,height:18,border:"2px solid "+(sel.includes(s.serial)?"#4f46e5":"rgba(255,255,255,0.2)"),borderRadius:4,background:sel.includes(s.serial)?"#4f46e5":"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+              {sel.includes(s.serial)&&<span style={{color:"white",fontSize:11,fontWeight:700}}>✓</span>}
+            </div>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2}}>
+                {s.simCode&&<span style={{background:s.simCode==="K"?"#4f46e5":"#059669",color:"white",fontSize:9,fontWeight:800,borderRadius:3,padding:"1px 5px"}}>{s.simCode}</span>}
+                <span style={{color:"#e2e8f0",fontWeight:700,fontSize:13}}>ซิมหมายเลข: {s.trackingNo}</span>
+              </div>
+              <div style={{color:"#8b8fa8",fontSize:11,fontFamily:"monospace",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.serial}</div>
+              {s.phone&&<div style={{color:"#6ee7b7",fontSize:11}}>📞 {s.phone}</div>}
+            </div>
+            <div style={{display:"flex",gap:4,flexShrink:0}}>
+              <button onClick={e=>{e.stopPropagation();onPreview(s);}} style={{...C.btnS,fontSize:10,padding:"4px 8px"}}>👁</button>
+              <button onClick={e=>{e.stopPropagation();onDeleteSim(s.serial);}} style={{...C.btnD,fontSize:10,padding:"4px 7px"}}>🗑</button>
+            </div>
+          </div>
+        ))}
+      </div>}
     </div>
   );
 }
