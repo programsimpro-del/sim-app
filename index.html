@@ -29,11 +29,13 @@ const {useState,useEffect,useRef,useCallback}=React;
 
 // Firebase
 const FB="https://simtracker-3a70d-default-rtdb.asia-southeast1.firebasedatabase.app";
-const TYPES={
-  plain:{path:"/sims_plain",ls:"sim_plain_v1",label:"ซิมเปล่า",emoji:"📦",color:"#4f46e5"},
-  free:{path:"/sims_free",ls:"sim_free_v1",label:"ซิมฟรีเดือนแรก",emoji:"🎁",color:"#059669"}
-};
+const DB={path:"/sims",ls:"sims_v2",arc:"/sims_archived"};
 const toKey=s=>String(s).replace(/[.#$[\]\/]/g,"_");
+const arcFB=s=>fbS(DB.arc+"/"+toKey(s.serial),s).catch(()=>{});
+const searchArc=async serial=>{
+  try{const d=await fbG(DB.arc+"/"+toKey(serial));if(d&&d.serial)return{...d,_archived:true};}catch(e){}
+  return null;
+};
 const lsG=k=>{try{return localStorage.getItem(k)}catch(e){return null}};
 const lsS=(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}};
 const fbG=p=>fetch(FB+p+".json").then(r=>r.json());
@@ -41,39 +43,26 @@ const fbS=(p,d)=>fetch(FB+p+".json",{method:"PUT",headers:{"Content-Type":"appli
 const fbP=(p,d)=>fetch(FB+p+".json",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(d)});
 const fbD=p=>fetch(FB+p+".json",{method:"DELETE"});
 
-const loadT=async t=>{
-  const cfg=TYPES[t],raw=lsG(cfg.ls)||"[]";
-  let loc=[];try{loc=JSON.parse(raw)}catch(e){}
+const loadAll=async()=>{
+  let loc=[];try{loc=JSON.parse(lsG(DB.ls)||"[]");}catch(e){}
   try{
-    const d=await Promise.race([fbG(cfg.path),new Promise((_,r)=>setTimeout(()=>r("to"),3000))]);
+    const d=await Promise.race([fbG(DB.path),new Promise((_,r)=>setTimeout(()=>r("to"),3000))]);
     if(d&&typeof d==="object"&&!d.error){
       const fb=Object.values(d).filter(s=>s&&s.serial);
       if(fb.length>0){
-        // Merge: ใช้ข้อมูล Firebase เป็นหลัก แต่ถ้า localStorage มี printed:true ให้รักษาไว้
         const locMap={};loc.forEach(s=>{locMap[s.serial]=s;});
-        const merged=fb.map(s=>{
-          const ls=locMap[s.serial];
-          if(!ls)return s;
-          return{...s,printed:s.printed||ls.printed||false,scannedByCustomer:s.scannedByCustomer||ls.scannedByCustomer||false};
-        });
-        lsS(cfg.ls,JSON.stringify(merged));return merged;
+        const merged=fb.map(s=>{const ls=locMap[s.serial];return ls?{...s,printed:s.printed||ls.printed||false,scannedByCustomer:s.scannedByCustomer||ls.scannedByCustomer||false}:s;});
+        lsS(DB.ls,JSON.stringify(merged));
+        return{sims:merged,bot:lsG("tg_bot")||"",chat:lsG("tg_chat")||""};
       }
     }
   }catch(e){}
-  return loc;
+  return{sims:loc,bot:lsG("tg_bot")||"",chat:lsG("tg_chat")||""};
 };
-const loadAll=async()=>{
-  const [plain,free]=await Promise.all([loadT("plain"),loadT("free")]);
-  return{plain,free,bot:lsG("tg_bot")||"",chat:lsG("tg_chat")||""};
-};
-const saveT=(sims,t)=>{
-  const cfg=TYPES[t];lsS(cfg.ls,JSON.stringify(sims));
-  const obj={};sims.forEach(s=>{obj[toKey(s.serial)]=s;});
-  fbS(cfg.path,obj).catch(()=>{});
-};
-const addFB=(s,t)=>fbS(TYPES[t].path+"/"+toKey(s.serial),s).catch(()=>{});
-const updFB=(serial,u,t)=>fbP(TYPES[t].path+"/"+toKey(serial),u).catch(()=>{});
-const delFB=(serial,t)=>fbD(TYPES[t].path+"/"+toKey(serial)).catch(()=>{});
+const saveAll=(sims)=>{lsS(DB.ls,JSON.stringify(sims));const obj={};sims.forEach(s=>{obj[toKey(s.serial)]=s;});fbS(DB.path,obj).catch(()=>{});};
+const addFB=s=>fbS(DB.path+"/"+toKey(s.serial),s).catch(()=>{});
+const updFB=(serial,u)=>fbP(DB.path+"/"+toKey(serial),u).catch(()=>{});
+const delFB=serial=>fbD(DB.path+"/"+toKey(serial)).catch(()=>{});
 const tgSend=(bot,chat,text)=>{
   if(!bot||!chat)return;
   fetch("https://api.telegram.org/bot"+bot+"/sendMessage",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({chat_id:chat,text})}).catch(()=>{});
@@ -472,7 +461,7 @@ function SimList({sims,onDelete,onUpdatePhone}){
     </div>}
   </div>;
 }
-function Summary({sims,bot,chat,simType}){
+function Summary({sims,bot,chat}){
   const [sending,setSending]=useState(false),[lastSent,setLastSent]=useState("");
   const today=todayS();
   const ts=sims.filter(s=>s.scannedByCustomer&&s.scannedAt&&new Date(s.scannedAt).toISOString().slice(0,10)===today);
@@ -484,7 +473,7 @@ function Summary({sims,bot,chat,simType}){
     const now=new Date();
     const ds=now.toLocaleDateString("th-TH",{year:"numeric",month:"long",day:"numeric"});
     const tm=now.toLocaleTimeString("th-TH");
-    const tn=TYPES[simType].emoji+" "+TYPES[simType].label;
+    const tn="📋 ซิมทั้งหมด";
     const lines=ts.map((s,i)=>(i+1)+". "+s.serial+"\n   📞 "+(s.phone||"รับหลังลงทะเบียน")+"\n   🔢 ซิมหมายเลข: "+s.trackingNo+"\n   ⏰ "+(s.scannedAt?new Date(s.scannedAt).toLocaleString("th-TH"):"-")).join("\n\n");
     const msg="📊 รายงานประจำวัน "+tn+"\n📅 วันที่: "+ds+" เวลา "+tm+"\n────────────────────────────\n✅ ลงทะเบียนวันนี้: "+ts.length+" ซิม\n📦 ซิมทั้งหมด: "+sims.length+" ซิม\n⏳ รอลงทะเบียน: "+sims.filter(s=>!s.scannedByCustomer).length+" ซิม\n────────────────────────────\n"+(ts.length>0?"📋 รายการวันนี้:\n\n"+lines:"📋 ยังไม่มีลูกค้าลงทะเบียนวันนี้");
     try{
@@ -542,10 +531,80 @@ function Settings({bot,chat,setBot,setChat,onSave}){
     <button style={C.btnP} onClick={()=>{setBot(b);setChat(cc);lsS("tg_bot",b);lsS("tg_chat",cc);onSave();}}>💾 บันทึก</button>
   </div>;
 }
+
+function ArchivedTab(){
+  const [sims,setSims]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [q,setQ]=useState("");
+  const [found,setFound]=useState(null);
+  const [searching,setSearching]=useState(false);
+
+  useEffect(()=>{
+    setLoading(true);
+    fbG(DB.arc).then(d=>{
+      if(d&&typeof d==="object"&&!d.error){
+        const list=Object.values(d).filter(s=>s&&s.serial);
+        list.sort((a,b)=>(b.printedAt||0)-(a.printedAt||0));
+        setSims(list);
+      }else setSims([]);
+      setLoading(false);
+    }).catch(()=>{setSims([]);setLoading(false);});
+  },[st]);
+
+  const search=async()=>{
+    if(!q.trim())return;
+    setSearching(true);setFound(null);
+    const r=await searchArc(q.trim());
+    setFound(r||false);
+    setSearching(false);
+  };
+
+  const fl=sims.filter(s=>!q||s.serial.toLowerCase().includes(q.toLowerCase())||s.trackingNo.includes(q));
+
+  return<div style={C.card}>
+    <h3 style={C.h3}>🗃️ ซิมที่พิมพ์แล้ว (Archive) — {sims.length} รายการ</h3>
+    <div style={{color:"#8b8fa8",fontSize:12,marginBottom:12}}>ซิมเหล่านี้ถูกลบออกจากระบบหลักแล้ว แต่ลูกค้ายังใช้ QR ได้ปกติ</div>
+
+    <div style={{display:"flex",gap:8,marginBottom:12}}>
+      <input style={{...C.inp,flex:1}} value={q} onChange={e=>setQ(e.target.value)}
+        placeholder="🔍 ค้นหา serial / เลขติดตาม..."
+        onKeyDown={e=>e.key==="Enter"&&search()}/>
+      <button style={C.btnP} onClick={search} disabled={searching}>{searching?"⏳":"🔍"}</button>
+    </div>
+
+    {found===false&&<div style={{padding:"10px 14px",background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:10,color:"#f87171",fontSize:13,marginBottom:10}}>❌ ไม่พบ serial นี้ใน archive</div>}
+    {found&&<div style={{padding:"10px 14px",background:"rgba(16,185,129,0.1)",border:"1px solid rgba(16,185,129,0.3)",borderRadius:10,marginBottom:10}}>
+      <div style={{color:"#6ee7b7",fontWeight:700,fontSize:13}}>✅ พบ: {found.serial}</div>
+      <div style={{color:"#94a3b8",fontSize:12}}>เลขติดตาม: {found.trackingNo} · พิมพ์เมื่อ: {found.printedAt?new Date(found.printedAt).toLocaleString("th-TH"):"-"}</div>
+      {found.phone&&<div style={{color:"#6ee7b7",fontSize:12}}>📞 {found.phone}</div>}
+      {found.scannedByCustomer&&<div style={{color:"#a78bfa",fontSize:12}}>✅ ลูกค้าสแกนแล้ว {found.scannedAt?new Date(found.scannedAt).toLocaleString("th-TH"):""}</div>}
+    </div>}
+
+    {loading?<div style={{textAlign:"center",padding:32,color:"#8b8fa8"}}>⏳ กำลังโหลด...</div>:
+    fl.length===0?<div style={{textAlign:"center",padding:32,color:"#8b8fa8"}}>📭 ยังไม่มีซิมใน archive</div>:
+    <div style={{overflowX:"auto"}}>
+      <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+        <thead><tr>
+          <th style={C.th}>Serial</th>
+          <th style={C.th}>เลขติดตาม</th>
+          <th style={C.th}>เบอร์</th>
+          <th style={C.th}>พิมพ์เมื่อ</th>
+          <th style={C.th}>สถานะ</th>
+        </tr></thead>
+        <tbody>{fl.map(s=><tr key={s.serial}>
+          <td style={{...C.td,fontFamily:"monospace",fontSize:11}}>{s.serial}</td>
+          <td style={C.td}>{s.trackingNo}</td>
+          <td style={C.td}>{s.phone||"-"}</td>
+          <td style={{...C.td,fontSize:11}}>{s.printedAt?new Date(s.printedAt).toLocaleString("th-TH"):"-"}</td>
+          <td style={C.td}>{s.scannedByCustomer?<span style={{color:"#6ee7b7",fontWeight:700}}>✅ สแกนแล้ว</span>:<span style={{color:"#f59e0b"}}>⏳ รอสแกน</span>}</td>
+        </tr>)}</tbody>
+      </table>
+    </div>}
+  </div>;
+}
+
 function App(){
-  const [st,setSt]=useState("plain");
-  const [pSims,setPSims]=useState([]);
-  const [fSims,setFSims]=useState([]);
+  const [sims,setSims]=useState([]);
   const [bot,setBot]=useState("");
   const [chat,setChat]=useState("");
   const [tab,setTab]=useState("scanner");
@@ -553,12 +612,9 @@ function App(){
   const [modal,setModal]=useState(null);
   const [loading,setLoading]=useState(true);
 
-  const sims=st==="plain"?pSims:fSims;
-  const setSims=fn=>{if(st==="plain")setPSims(fn);else setFSims(fn);};
-
   useEffect(()=>{
     const timeout=setTimeout(()=>setLoading(false),8000);
-    loadAll().then(d=>{clearTimeout(timeout);setPSims(d.plain||[]);setFSims(d.free||[]);setBot(d.bot);setChat(d.chat);setLoading(false);})
+    loadAll().then(d=>{clearTimeout(timeout);setSims(d.sims||[]);setBot(d.bot);setChat(d.chat);setLoading(false);})
       .catch(()=>{clearTimeout(timeout);setLoading(false);});
   },[]);
 
@@ -572,22 +628,18 @@ function App(){
   const applyScanned=(serial)=>{
     const now=Date.now();
     let found=null;
-    const applyType=(setFn,t)=>{
-      setFn(prev=>{
-        let hit=false;
-        const next=prev.map(s=>{
-          if(s.serial!==serial||s.scannedByCustomer)return s;
-          hit=true;
-          found={...s,scannedByCustomer:true,scannedAt:now};
-          updFB(serial,{scannedByCustomer:true,scannedAt:now},t).catch(()=>{});
-          return{...s,scannedByCustomer:true,scannedAt:now};
-        });
-        if(hit)lsS(TYPES[t].ls,JSON.stringify(next));
-        return hit?next:prev;
+    setSims(prev=>{
+      let hit=false;
+      const next=prev.map(s=>{
+        if(s.serial!==serial||s.scannedByCustomer)return s;
+        hit=true;
+        found={...s,scannedByCustomer:true,scannedAt:now};
+        updFB(serial,{scannedByCustomer:true,scannedAt:now});
+        return{...s,scannedByCustomer:true,scannedAt:now};
       });
-    };
-    applyType(setPSims,"plain");
-    applyType(setFSims,"free");
+      if(hit)lsS(DB.ls,JSON.stringify(next));
+      return hit?next:prev;
+    });
     return found;
   };
 
@@ -632,35 +684,48 @@ function App(){
     if(sims.find(s=>s.serial===serial)){t3("⚠️ "+serial+" มีอยู่แล้ว","warn");return;}
     const raw=rsv||genNo(new Set(sims.map(s=>s.trackingNo)));
     const trk=code?code+raw:raw;
-    const ns={serial,trackingNo:trk,phone:phone||"",simCode:code||"",simType:st,scannedByCustomer:false,scannedAt:null,createdAt:Date.now(),printed:false};
-    setSims(prev=>{const u=[ns,...prev];lsS(TYPES[st].ls,JSON.stringify(u));addFB(ns,st);return u;});
+    const ns={serial,trackingNo:trk,phone:phone||"",simCode:code||"",scannedByCustomer:false,scannedAt:null,createdAt:Date.now(),printed:false};
+    setSims(prev=>{const u=[ns,...prev];lsS(DB.ls,JSON.stringify(u));addFB(ns);return u;});
     t3("✅ เพิ่มซิม (เลขติดตาม: "+trk+")");
   };
 
   const delSim=serial=>{
     if(!confirm("ลบซิม "+serial+" ?"))return;
-    setSims(prev=>{const u=prev.filter(s=>s.serial!==serial);saveT(u,st);delFB(serial,st);return u;});
+    setSims(prev=>{const u=prev.filter(s=>s.serial!==serial);saveAll(u);delFB(serial);return u;});
     t3("🗑️ ลบแล้ว","warn");
   };
 
   const updPhone=(serial,phone)=>{
-    setSims(prev=>{const u=prev.map(s=>s.serial===serial?{...s,phone}:s);saveT(u,st);updFB(serial,{phone},st);return u;});
+    setSims(prev=>{const u=prev.map(s=>s.serial===serial?{...s,phone}:s);saveAll(u);updFB(serial,{phone});return u;});
     t3(phone?"✅ บันทึกเบอร์ "+phone:"✅ ลบเบอร์แล้ว");
   };
 
   const markP=serials=>{
     setSims(prev=>{
-      const u=prev.map(s=>serials.includes(s.serial)?{...s,printed:true}:s);
-      lsS(TYPES[st].ls,JSON.stringify(u));
-      serials.forEach(s=>updFB(s,{printed:true},st));
+      const now=Date.now();
+      const toArc=prev.filter(s=>serials.includes(s.serial));
+      toArc.forEach(s=>{arcFB({...s,printed:true,printedAt:now});delFB(s.serial);});
+      const u=prev.filter(s=>!serials.includes(s.serial));
+      lsS(DB.ls,JSON.stringify(u));
       return u;
     });
-    t3("✅ ย้ายไปพิมพ์แล้ว "+serials.length+" รายการ");
+    t3("✅ พิมพ์แล้ว — ย้ายซิม "+serials.length+" รายการออกจากระบบ (ค้นหาได้ที่แท็บ 🗃️)");
   };
 
-  const unmarkP=serial=>{
-    setSims(prev=>{const u=prev.map(s=>s.serial===serial?{...s,printed:false}:s);saveT(u,st);updFB(serial,{printed:false},st);return u;});
-    t3("↩️ ย้ายกลับยังไม่พิมพ์");
+  const unmarkP=async(serial)=>{
+    const found=await searchArc(serial);
+    if(found){
+      const restored={...found,printed:false};delete restored._archived;
+      setSims(prev=>{
+        if(prev.find(s=>s.serial===serial))return prev;
+        const u=[restored,...prev];
+        lsS(DB.ls,JSON.stringify(u));
+        addFB(restored);
+        fbD(DB.arc+"/"+toKey(serial)).catch(()=>{});
+        return u;
+      });
+      t3("↩️ ดึงซิมกลับจาก archive แล้ว");
+    }else{t3("⚠️ ไม่พบซิมใน archive","warn");}
   };
 
   const markSc=serial=>{
@@ -668,11 +733,12 @@ function App(){
     setSims(prev=>prev.map(s=>{
       if(s.serial!==serial)return s;
       tgSend(bot,chat,"🔔 ลูกค้าสแกน QR Code แล้ว!\n📋 เลขซีเรียลซิม: "+s.serial+"\n📞 เบอร์โทร: "+(s.phone||"รับหลังลงทะเบียนซิม")+"\n🔢 เลขติดตาม: "+s.trackingNo+"\n⏰ เวลา: "+new Date(now).toLocaleString("th-TH")+"\n✅ ระบบอัปเดตสถานะอัตโนมัติแล้ว");
-      updFB(s.serial,{scannedByCustomer:true,scannedAt:now},st);
+      updFB(s.serial,{scannedByCustomer:true,scannedAt:now});
       return{...s,scannedByCustomer:true,scannedAt:now};
     }));
     t3("✅ อัปเดตสถานะแล้ว");
   };
+
 
   const pc=sims.filter(s=>!s.scannedByCustomer).length;
   const sc=sims.filter(s=>s.scannedByCustomer).length;
@@ -680,6 +746,7 @@ function App(){
   const tabs=[
     {id:"scanner",label:"📷 ยิงซิม"},
     {id:"qr",label:"🔲 QR Code ("+sims.length+")"},
+    {id:"archived",label:"🗃️ Archive"},
     {id:"pending",label:"⏳ รอสแกน ("+pc+")"},
     {id:"scanned",label:"📋 ลงทะเบียนแล้ว ("+sc+")"},
     {id:"list",label:"📋 รายการ"},
@@ -708,20 +775,6 @@ function App(){
         <div style={{textAlign:"center"}}><div style={{color:"#6ee7b7",fontWeight:800,fontSize:20}}>{sims.filter(s=>s.scannedByCustomer&&new Date(s.scannedAt||0).toISOString().slice(0,10)===todayS()).length}</div><div style={{color:"#8b8fa8",fontSize:10}}>สแกนวันนี้</div></div>
       </div>
 
-      <div style={{background:"rgba(0,0,0,0.3)",borderBottom:"1px solid rgba(255,255,255,0.08)",padding:"8px 12px",display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-        <span style={{color:"#94a3b8",fontSize:12,fontWeight:600}}>ประเภทซิม:</span>
-        {Object.entries(TYPES).map(([key,cfg])=>(
-          <button key={key} onClick={()=>{setSt(key);setTab("scanner");}}
-            style={{padding:"7px 18px",border:"none",borderRadius:20,cursor:"pointer",fontFamily:"inherit",fontWeight:700,fontSize:13,
-              background:st===key?cfg.color:"rgba(255,255,255,0.08)",
-              color:st===key?"white":"#8b8fa8",
-              outline:st===key?"2px solid "+cfg.color:"none"}}>
-            {cfg.emoji} {cfg.label}
-            {st===key&&<span style={{marginLeft:6,background:"rgba(255,255,255,0.2)",borderRadius:99,padding:"1px 7px",fontSize:11}}>{sims.length}</span>}
-          </button>
-        ))}
-      </div>
-
       <div style={{display:"flex",overflowX:"auto",borderBottom:"1px solid rgba(255,255,255,0.08)",background:"rgba(15,15,40,0.6)"}}>
         {tabs.map(t=>(
           <button key={t.id} onClick={()=>setTab(t.id)}
@@ -734,10 +787,11 @@ function App(){
       <div style={{padding:"0 0 80px"}}>
         {tab==="scanner"&&<Scanner onScan={addSim} sims={sims}/>}
         {tab==="qr"&&<QRMain sims={sims} bot={bot} chat={chat} onMarkPrinted={markP} onUnmarkPrinted={unmarkP} onDeleteSim={delSim} onPreview={s=>setModal(s)}/>}
+        {tab==="archived"&&<ArchivedTab/>}
         {tab==="pending"&&<PendingTab sims={sims} onMarkScanned={markSc} onPreview={s=>setModal(s)}/>}
         {tab==="scanned"&&<ScannedTab sims={sims}/>}
         {tab==="list"&&<SimList sims={sims} onDelete={delSim} onUpdatePhone={updPhone}/>}
-        {tab==="summary"&&<Summary sims={sims} bot={bot} chat={chat} simType={st}/>}
+        {tab==="summary"&&<Summary sims={sims} bot={bot} chat={chat} />}
         {tab==="settings"&&<Settings bot={bot} chat={chat} setBot={setBot} setChat={setChat} onSave={()=>t3("✅ บันทึกแล้ว")}/>}
       </div>
     </div>
