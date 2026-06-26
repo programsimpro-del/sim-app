@@ -404,14 +404,23 @@ function QRMain({sims,bot,chat,onMarkPrinted,onUnmarkPrinted,onDeleteSim,onPrevi
   );
 }
 function PendingTab({sims,onMarkScanned,onPreview}){
-  const fl=sims.filter(s=>!s.scannedByCustomer);
-  return<div style={C.card}><h3 style={C.h3}>⏳ รอสแกน ({fl.length})</h3>
-    {fl.length===0?<div style={{textAlign:"center",padding:32,color:"#8b8fa8"}}>✅ ไม่มีซิมรอสแกน</div>:fl.map(s=>(
+  const [q,setQ]=useState("");
+  const all=sims.filter(s=>!s.scannedByCustomer);
+  const fl=all.filter(s=>!q||s.serial.toLowerCase().includes(q.toLowerCase())||s.trackingNo.includes(q)||(s.phone||"").includes(q));
+  return<div style={C.card}>
+    <h3 style={C.h3}>⏳ รอสแกน ({all.length})</h3>
+    <input style={{...C.inp,marginBottom:12}} value={q} onChange={e=>setQ(e.target.value)}
+      placeholder="🔍 ค้นหา serial / ซิมหมายเลข / เบอร์โทร..."/>
+    {q&&<div style={{color:"#8b8fa8",fontSize:12,marginBottom:8}}>พบ {fl.length} รายการ</div>}
+    {fl.length===0?<div style={{textAlign:"center",padding:32,color:"#8b8fa8"}}>{all.length===0?"✅ ไม่มีซิมรอสแกน":"🔍 ไม่พบรายการที่ค้นหา"}</div>:fl.map(s=>(
       <div key={s.serial} style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:10,padding:"10px 14px",marginBottom:8}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
           <div>
-            <div style={{color:"white",fontFamily:"monospace",fontSize:13}}>{s.serial}</div>
-            <div style={{color:"#a78bfa",fontSize:11}}>ซิมหมายเลข: {s.trackingNo}</div>
+            <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2}}>
+              {s.simCode&&<span style={{background:s.simCode==="K"?"#4f46e5":"#059669",color:"white",fontSize:9,fontWeight:800,borderRadius:3,padding:"1px 5px"}}>{s.simCode}</span>}
+              <span style={{color:"#a78bfa",fontWeight:700,fontSize:12}}>ซิมหมายเลข: {s.trackingNo}</span>
+            </div>
+            <div style={{color:"white",fontFamily:"monospace",fontSize:12}}>{s.serial}</div>
             {s.phone&&<div style={{color:"#6ee7b7",fontSize:11}}>📞 {s.phone}</div>}
           </div>
           <div style={{display:"flex",gap:6}}>
