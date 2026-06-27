@@ -707,8 +707,10 @@ function ArchivedTab(){
   const [sims,setSims]=useState([]);
   const [loading,setLoading]=useState(true);
   const [q,setQ]=useState("");
-  const [found,setFound]=useState(null);
-  const [searching,setSearching]=useState(false);
+  const [mode,setMode]=useState("single"); // "single" | "bulk"
+  const [bulkText,setBulkText]=useState("");
+  const [bulkResults,setBulkResults]=useState([]); // [{sim,status}]
+  const [bulkSearching,setBulkSearching]=useState(false);
 
   useEffect(()=>{
     setLoading(true);
@@ -727,33 +729,169 @@ function ArchivedTab(){
     }).catch(()=>{setSims([]);setLoading(false);});
   },[]);
 
-  const search=async()=>{
-    if(!q.trim())return;
-    setSearching(true);setFound(null);
-    const r=await searchArc(q.trim());
-    setFound(r||false);
-    setSearching(false);
+  // ดึง serial จากข้อความ Telegram หรือข้อความทั่วไป
+  const extractSerials=text=>{
+    const found=new Set();
+    // จับจากบรรทัด "เลขซีเรียลซิม: XXXX"
+    const r1=text.matchAll(/เลขซีเรียลซิม[:\s]+([^\s
+📞🔢⏰✅🔔📋]+)/g);
+    for(const m of r1)found.add(m[1].trim());
+    // จับตัวเลขยาว 10+ หลัก
+    const r2=text.matchAll(/(\d{10,20})/g);
+    for(const m of r2)found.add(m[1].trim());
+    return [...found].filter(s=>s.length>=8);
   };
 
-  const fl=sims.filter(s=>!q||s.serial.toLowerCase().includes(q.toLowerCase())||s.trackingNo.includes(q));
+  const doBulkSearch=async()=>{
+    const serials=extractSerials(bulkText);
+    if(!serials.length)return;
+    setBulkSearching(true);setBulkResults([]);
+    const results=[];
+    for(const serial of serials){
+      const found=await searchArc(serial);
+      results.push({serial,sim:found||null,status:found?"found":"notfound"});
+    }
+    setBulkResults(results);
+    setBulkSearching(false);
+  };
+
+  const markScanned=(serial)=>{
+    const now=Date.now();
+    const allPaths=[DB.arc,"/sims_plain_archived","/sims_free_archived","/sims","/sims_plain","/sims_free"];
+    allPaths.forEach(p=>fbP(p+"/"+toKey(serial),{scannedByCustomer:true,scannedAt:now}).catch(()=>{}));
+    setSims(prev=>prev.map(s=>s.serial===serial?{...s,scannedByCustomer:true,scannedAt:now}:s));
+    setBulkResults(prev=>prev.map(r=>r.serial===serial?{...r,sim:{...r.sim,scannedByCustomer:true,scannedAt:now},status:"done"}:r));
+  };
+
+  const markAllScanned=()=>{
+    const pending=bulkResults.filter(r=>r.sim&&!r.sim.scannedByCustomer);
+    if(!pending.length)return;
+    if(!confirm("ย้าย "+pending.length+" รายการเป็นลงทะเบียนแล้ว?"))return;
+    pending.forEach(r=>markScanned(r.serial));
+  };
+
+  const fl=sims.filter(s=>!q||s.serial.toLowerCase().includes(q.toLowerCase())||s.trackingNo.toLowerCase().includes(q.toLowerCase())||(s.phone||"").includes(q));
+
+  // แยกตาม simCode
+  const groups={A:[],K:[],L:[],D:[],other:[]};
+  bulkResults.forEach(r=>{
+    if(!r.sim){groups.other.push(r);return;}
+    const code=(r.sim.simCode||"").toUpperCase();
+    if(groups[code])groups[code].push(r);else groups.other.push(r);
+  });
 
   return<div style={C.card}>
     <h3 style={C.h3}>🗃️ ซิมที่พิมพ์แล้ว (Archive) — {sims.length} รายการ</h3>
-    <div style={{color:"#8b8fa8",fontSize:12,marginBottom:12}}>ซิมเหล่านี้ถูกลบออกจากระบบหลักแล้ว แต่ลูกค้ายังใช้ QR ได้ปกติ</div>
 
-    <div style={{display:"flex",gap:8,marginBottom:12}}>
-      <input style={{...C.inp,flex:1}} value={q} onChange={e=>setQ(e.target.value)}
-        placeholder="🔍 ค้นหา serial / เลขติดตาม..."
-        onKeyDown={e=>e.key==="Enter"&&search()}/>
-      <button style={C.btnP} onClick={search} disabled={searching}>{searching?"⏳":"🔍"}</button>
+    {/* Mode tabs */}
+    <div style={{display:"flex",gap:6,marginBottom:14}}>
+      {[{id:"single",label:"🔍 ค้นหารายเดียว"},{id:"bulk",label:"📋 วางข้อความ Telegram"}].map(m=>(
+        <button key={m.id} onClick={()=>{setMode(m.id);setBulkResults([]);}}
+          style={{flex:1,padding:"8px",border:"none",borderRadius:9,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",
+            background:mode===m.id?"rgba(255,255,255,0.12)":"rgba(255,255,255,0.04)",
+            color:mode===m.id?"#a5b4fc":"#8b8fa8",
+            borderBottom:mode===m.id?"2px solid #a5b4fc":"2px solid transparent"}}>{m.label}</button>
+      ))}
     </div>
 
-    {found===false&&<div style={{padding:"10px 14px",background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:10,color:"#f87171",fontSize:13,marginBottom:10}}>❌ ไม่พบ serial นี้ใน archive</div>}
-    {found&&<div style={{padding:"10px 14px",background:"rgba(16,185,129,0.1)",border:"1px solid rgba(16,185,129,0.3)",borderRadius:10,marginBottom:10}}>
-      <div style={{color:"#6ee7b7",fontWeight:700,fontSize:13}}>✅ พบ: {found.serial}</div>
-      <div style={{color:"#94a3b8",fontSize:12}}>เลขติดตาม: {found.trackingNo} · พิมพ์เมื่อ: {found.printedAt?new Date(found.printedAt).toLocaleString("th-TH"):"-"}</div>
-      {found.phone&&<div style={{color:"#6ee7b7",fontSize:12}}>📞 {found.phone}</div>}
-      {found.scannedByCustomer&&<div style={{color:"#a78bfa",fontSize:12}}>✅ ลูกค้าสแกนแล้ว {found.scannedAt?new Date(found.scannedAt).toLocaleString("th-TH"):""}</div>}
+    {/* Single search */}
+    {mode==="single"&&<div style={{display:"flex",gap:8,marginBottom:12}}>
+      <input style={{...C.inp,flex:1}} value={q} onChange={e=>setQ(e.target.value)}
+        placeholder="🔍 ค้นหา serial / เลขติดตาม / เบอร์..."/>
+      {q&&<button onClick={()=>setQ("")} style={{...C.btnS,padding:"10px",color:"#f87171"}}>✕</button>}
+    </div>}
+
+    {/* Bulk paste */}
+    {mode==="bulk"&&<div>
+      <div style={{color:"#8b8fa8",fontSize:12,marginBottom:8}}>วางข้อความจาก Telegram ได้เลย รองรับหลายข้อความพร้อมกัน</div>
+      <textarea value={bulkText} onChange={e=>setBulkText(e.target.value)}
+        placeholder={"🔔 ลูกค้าสแกน QR Code แล้ว!
+📋 เลขซีเรียลซิม: 896604072690348888
+📞 เบอร์โทร: 0834712822
+🔢 เลขติดตาม: L70882
+...
+
+วางข้อความหลายรายการได้เลย"}
+        style={{...C.inp,height:160,resize:"vertical",fontSize:12,fontFamily:"monospace",lineHeight:1.6,marginBottom:8}}/>
+      <div style={{display:"flex",gap:8,marginBottom:12}}>
+        <span style={{color:"#8b8fa8",fontSize:12,alignSelf:"center"}}>
+          พบ {extractSerials(bulkText).length} เลขซีเรียล
+        </span>
+        <button onClick={doBulkSearch} disabled={bulkSearching||!bulkText.trim()}
+          style={{...C.btnP,flex:1,opacity:bulkSearching||!bulkText.trim()?0.4:1}}>
+          {bulkSearching?"⏳ กำลังค้นหา...":"🔍 ค้นหาทั้งหมด"}
+        </button>
+        {bulkResults.length>0&&<button onClick={()=>{setBulkResults([]);setBulkText("");}}
+          style={{...C.btnS,color:"#f87171"}}>ล้าง</button>}
+      </div>
+
+      {/* ผลลัพธ์ bulk */}
+      {bulkResults.length>0&&<div>
+        {/* สรุป */}
+        <div style={{background:"rgba(99,102,241,0.1)",border:"1px solid rgba(99,102,241,0.3)",borderRadius:12,padding:"12px 14px",marginBottom:12}}>
+          <div style={{color:"#a5b4fc",fontWeight:700,fontSize:13,marginBottom:8}}>📊 สรุปผลการค้นหา</div>
+          <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+            {[
+              {label:"พบทั้งหมด",val:bulkResults.filter(r=>r.sim).length,color:"#6ee7b7"},
+              {label:"ไม่พบ",val:bulkResults.filter(r=>!r.sim).length,color:"#f87171"},
+              {label:"ลงทะเบียนแล้ว",val:bulkResults.filter(r=>r.sim?.scannedByCustomer).length,color:"#a78bfa"},
+              {label:"รอดำเนินการ",val:bulkResults.filter(r=>r.sim&&!r.sim.scannedByCustomer).length,color:"#fbbf24"},
+            ].map(it=>(
+              <div key={it.label} style={{textAlign:"center",minWidth:60}}>
+                <div style={{color:it.color,fontWeight:800,fontSize:20}}>{it.val}</div>
+                <div style={{color:"#8b8fa8",fontSize:10}}>{it.label}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* ปุ่มย้ายทั้งหมด */}
+        {bulkResults.some(r=>r.sim&&!r.sim.scannedByCustomer)&&
+          <button onClick={markAllScanned}
+            style={{...C.btnP,width:"100%",marginBottom:12,background:"linear-gradient(135deg,#059669,#10b981)"}}>
+            ✅ ย้ายทั้งหมดเป็น "ลงทะเบียนแล้ว" ({bulkResults.filter(r=>r.sim&&!r.sim.scannedByCustomer).length} รายการ)
+          </button>}
+
+        {/* แยกตามเครือข่าย */}
+        {[
+          {key:"A",label:"AIS",color:"#d97706",emoji:"🟡"},
+          {key:"K",label:"True (K)",color:"#e53e3e",emoji:"🔴"},
+          {key:"L",label:"True (L)",color:"#4f46e5",emoji:"🟣"},
+          {key:"D",label:"DTAC",color:"#0891b2",emoji:"🔵"},
+          {key:"other",label:"ไม่ระบุเครือข่าย",color:"#6b7280",emoji:"⚪"},
+        ].filter(g=>groups[g.key]?.length>0).map(g=>(
+          <div key={g.key} style={{marginBottom:12}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+              <span style={{background:g.color,color:"white",fontSize:11,fontWeight:800,borderRadius:6,padding:"2px 10px"}}>{g.emoji} {g.label}</span>
+              <span style={{color:"#8b8fa8",fontSize:12}}>{groups[g.key].length} รายการ</span>
+            </div>
+            {groups[g.key].map(r=>(
+              <div key={r.serial} style={{background:r.sim?"rgba(255,255,255,0.03)":"rgba(239,68,68,0.06)",
+                border:"1px solid "+(r.sim?"rgba(255,255,255,0.07)":"rgba(239,68,68,0.2)"),
+                borderRadius:10,padding:"10px 14px",marginBottom:6,display:"flex",alignItems:"center",gap:10}}>
+                <div style={{flex:1,minWidth:0}}>
+                  {r.sim
+                    ?<>
+                      <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2}}>
+                        <span style={{color:"#a78bfa",fontWeight:700,fontSize:12}}>ซิมหมายเลข: {r.sim.trackingNo}</span>
+                        {r.sim.scannedByCustomer&&<span style={{color:"#6ee7b7",fontSize:10,fontWeight:700}}>✅ ลงทะเบียนแล้ว</span>}
+                      </div>
+                      <div style={{color:"#e2e8f0",fontFamily:"monospace",fontSize:11}}>{r.serial}</div>
+                      {r.sim.phone&&<div style={{color:"#6ee7b7",fontSize:11}}>📞 {r.sim.phone}</div>}
+                    </>
+                    :<div style={{color:"#f87171",fontSize:12}}>❌ ไม่พบ: {r.serial}</div>
+                  }
+                </div>
+                {r.sim&&!r.sim.scannedByCustomer&&
+                  <button onClick={()=>markScanned(r.serial)}
+                    style={{...C.btnP,fontSize:11,padding:"6px 12px",whiteSpace:"nowrap",flexShrink:0}}>
+                    ✅ ลงทะเบียนแล้ว
+                  </button>}
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>}
     </div>}
 
     {loading?<div style={{textAlign:"center",padding:32,color:"#8b8fa8"}}>⏳ กำลังโหลด...</div>:
