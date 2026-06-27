@@ -33,7 +33,14 @@ const DB={path:"/sims",ls:"sims_v2",arc:"/sims_archived"};
 const toKey=s=>String(s).replace(/[.#$[\]\/]/g,"_");
 const arcFB=s=>fbS(DB.arc+"/"+toKey(s.serial),s).catch(()=>{});
 const searchArc=async serial=>{
-  try{const d=await fbG(DB.arc+"/"+toKey(serial));if(d&&d.serial)return{...d,_archived:true};}catch(e){}
+  // ค้นหาจากทุก archive path (รองรับซิมเก่าและใหม่)
+  const paths=[DB.arc,"/sims_plain_archived","/sims_free_archived","/sims_plain","/sims_free","/sims"];
+  for(const p of paths){
+    try{
+      const d=await fbG(p+"/"+toKey(serial));
+      if(d&&d.serial)return{...d,_archived:true};
+    }catch(e){}
+  }
   return null;
 };
 const lsG=k=>{try{return localStorage.getItem(k)}catch(e){return null}};
@@ -705,15 +712,20 @@ function ArchivedTab(){
 
   useEffect(()=>{
     setLoading(true);
-    fbG(DB.arc).then(d=>{
-      if(d&&typeof d==="object"&&!d.error){
-        const list=Object.values(d).filter(s=>s&&s.serial);
-        list.sort((a,b)=>(b.printedAt||0)-(a.printedAt||0));
-        setSims(list);
-      }else setSims([]);
+    const paths=[DB.arc,"/sims_plain_archived","/sims_free_archived"];
+    Promise.all(paths.map(p=>fbG(p).catch(()=>null))).then(results=>{
+      const all={};
+      results.forEach(d=>{
+        if(d&&typeof d==="object"&&!d.error){
+          Object.values(d).filter(s=>s&&s.serial).forEach(s=>{all[s.serial]=s;});
+        }
+      });
+      const list=Object.values(all);
+      list.sort((a,b)=>(b.printedAt||b.createdAt||0)-(a.printedAt||a.createdAt||0));
+      setSims(list);
       setLoading(false);
     }).catch(()=>{setSims([]);setLoading(false);});
-  },[st]);
+  },[]);
 
   const search=async()=>{
     if(!q.trim())return;
