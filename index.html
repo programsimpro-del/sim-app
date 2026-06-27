@@ -616,7 +616,7 @@ function Settings({bot,chat,setBot,setChat,onSave}){
   const updNet=(code,field,val)=>setNets(prev=>({...prev,[code]:{...prev[code],[field]:val}}));
 
   const uploadLogo=(code,e)=>{
-    const file=e.target.files?.[0];if(!file)return;
+    const file=e.target.files&&e.target.files[0];if(!file)return;
     if(file.size>200000){alert("รูปใหญ่เกินไป กรุณาใช้ไฟล์ไม่เกิน 200KB");return;}
     const rd=new FileReader();
     rd.onload=ev=>updNet(code,"logo",ev.target.result);
@@ -805,13 +805,7 @@ function ArchivedTab(){
     {mode==="bulk"&&<div>
       <div style={{color:"#8b8fa8",fontSize:12,marginBottom:8}}>วางข้อความจาก Telegram ได้เลย รองรับหลายข้อความพร้อมกัน</div>
       <textarea value={bulkText} onChange={e=>setBulkText(e.target.value)}
-        placeholder={"🔔 ลูกค้าสแกน QR Code แล้ว!
-📋 เลขซีเรียลซิม: 896604072690348888
-📞 เบอร์โทร: 0834712822
-🔢 เลขติดตาม: L70882
-...
-
-วางข้อความหลายรายการได้เลย"}
+        placeholder={"วางข้อความจาก Telegram ได้เลย หลายรายการพร้อมกัน"}
         style={{...C.inp,height:160,resize:"vertical",fontSize:12,fontFamily:"monospace",lineHeight:1.6,marginBottom:8}}/>
       <div style={{display:"flex",gap:8,marginBottom:12}}>
         <span style={{color:"#8b8fa8",fontSize:12,alignSelf:"center"}}>
@@ -834,7 +828,7 @@ function ArchivedTab(){
             {[
               {label:"พบทั้งหมด",val:bulkResults.filter(r=>r.sim).length,color:"#6ee7b7"},
               {label:"ไม่พบ",val:bulkResults.filter(r=>!r.sim).length,color:"#f87171"},
-              {label:"ลงทะเบียนแล้ว",val:bulkResults.filter(r=>r.sim?.scannedByCustomer).length,color:"#a78bfa"},
+              {label:"ลงทะเบียนแล้ว",val:bulkResults.filter(r=>r.sim&&r.sim.scannedByCustomer).length,color:"#a78bfa"},
               {label:"รอดำเนินการ",val:bulkResults.filter(r=>r.sim&&!r.sim.scannedByCustomer).length,color:"#fbbf24"},
             ].map(it=>(
               <div key={it.label} style={{textAlign:"center",minWidth:60}}>
@@ -849,7 +843,7 @@ function ArchivedTab(){
         {bulkResults.some(r=>r.sim&&!r.sim.scannedByCustomer)&&
           <button onClick={markAllScanned}
             style={{...C.btnP,width:"100%",marginBottom:12,background:"linear-gradient(135deg,#059669,#10b981)"}}>
-            ✅ ย้ายทั้งหมดเป็น "ลงทะเบียนแล้ว" ({bulkResults.filter(r=>r.sim&&!r.sim.scannedByCustomer).length} รายการ)
+            ✅ ย้ายทั้งหมดเป็น ลงทะเบียนแล้ว ({bulkResults.filter(r=>r.sim&&!r.sim.scannedByCustomer).length} รายการ)
           </button>}
 
         {/* แยกตามเครือข่าย */}
@@ -859,7 +853,7 @@ function ArchivedTab(){
           {key:"L",label:"True (L)",color:"#4f46e5",emoji:"🟣"},
           {key:"D",label:"DTAC",color:"#0891b2",emoji:"🔵"},
           {key:"other",label:"ไม่ระบุเครือข่าย",color:"#6b7280",emoji:"⚪"},
-        ].filter(g=>groups[g.key]?.length>0).map(g=>(
+        ].filter(g=>groups[g.key]&&groups[g.key].length>0).map(g=>(
           <div key={g.key} style={{marginBottom:12}}>
             <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
               <span style={{background:g.color,color:"white",fontSize:11,fontWeight:800,borderRadius:6,padding:"2px 10px"}}>{g.emoji} {g.label}</span>
@@ -988,11 +982,11 @@ function App(){
         const offset=tgOffsetRef.current;
         const res=await fetch("https://api.telegram.org/bot"+botRef.current+"/getUpdates?timeout=0&offset="+offset);
         const data=await res.json();
-        if(!data.ok||!data.result?.length)return;
+        if(!data.ok||!data.result&&data.result.length)return;
         let maxId=offset;
         for(const upd of data.result){
           if(upd.update_id>=maxId)maxId=upd.update_id+1;
-          const txt=upd.message?.text||upd.channel_post?.text||"";
+          const txt=upd.message&&upd.message.text||upd.channel_post&&upd.channel_post.text||"";
           const m=txt.match(/เลขซีเรียลซิม[: \t]*([^\s\n]+)/)||txt.match(/serial[: ]+([^\s\n]+)/i)||txt.match(/s=([^&\s]+)/);
           if(m&&m[1]){
             const serial=m[1].trim();
