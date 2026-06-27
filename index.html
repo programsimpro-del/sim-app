@@ -69,14 +69,24 @@ const tgSend=(bot,chat,text)=>{
 };
 const genNo=used=>{let n;do{n=String(Math.floor(Math.random()*99999)+1);}while(used.has(n));return n;};
 const fmtD=ts=>ts?new Date(ts).toLocaleDateString("th-TH"):"-";
+const netColor=code=>({K:"#e53e3e",L:"#4f46e5",A:"#d97706",D:"#0891b2"}[code]||"#6b7280");
+const netLabel=code=>({K:"True",L:"True",A:"AIS",D:"DTAC"}[code]||code);
 const todayS=()=>new Date().toISOString().slice(0,10);
-const makeURL=(s,t,bot,chat,phone)=>{
+const REG_URL={
+  K:"https://app.true.th/prepaid-registration?language=th",
+  L:"https://app.true.th/prepaid-registration?language=th",
+  A:"https://kyc.cloud.ais.th/client/select-cardtype",
+  D:"https://app.true.th/prepaid-registration?language=th",// TODO: ใส่ลิงก์ DTAC
+};
+const makeURL=(s,t,bot,chat,phone,code)=>{
   let u="https://programsimpro-del.github.io/Sim/?s="+encodeURIComponent(s)+"&t="+encodeURIComponent(t);
   if(bot)u+="&tgbot="+encodeURIComponent(bot);
   if(chat)u+="&tgchat="+encodeURIComponent(chat);
   if(phone)u+="&phone="+encodeURIComponent(phone);
+  if(code)u+="&net="+encodeURIComponent(code);
   return u;
 };
+const regURL=code=>REG_URL[code]||REG_URL.K;
 
 const C={
   card:{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:16,padding:16,margin:"12px 12px 0"},
@@ -210,14 +220,24 @@ function Scanner({onScan,sims}){
   return(
     <div style={C.card}>
       <h3 style={C.h3}>📷 ยิงเลขซีเรียลซิม</h3>
-      <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:14}}>
-        <span style={{color:"#94a3b8",fontSize:13,fontWeight:600}}>โค้ดซิม:</span>
-        {["K","L"].map(k=>(
-          <button key={k} onClick={()=>setCode(k)}
-            style={{padding:"8px 24px",border:"none",borderRadius:10,cursor:"pointer",fontFamily:"inherit",fontWeight:700,fontSize:15,
-              background:code===k?(k==="K"?"linear-gradient(135deg,#4f46e5,#7c3aed)":"linear-gradient(135deg,#059669,#10b981)"):"rgba(255,255,255,0.06)",
-              color:code===k?"white":"#8b8fa8"}}>{k}</button>
-        ))}
+      <div style={{marginBottom:14}}>
+        <span style={{color:"#94a3b8",fontSize:13,fontWeight:600,display:"block",marginBottom:8}}>เครือข่าย:</span>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+          {[
+            {code:"K", label:"True",   emoji:"📶", grad:"linear-gradient(135deg,#e53e3e,#c53030)"},
+            {code:"L", label:"True",   emoji:"📶", grad:"linear-gradient(135deg,#4f46e5,#7c3aed)"},
+            {code:"A", label:"AIS",    emoji:"📡", grad:"linear-gradient(135deg,#d97706,#f59e0b)"},
+            {code:"D", label:"DTAC",   emoji:"📱", grad:"linear-gradient(135deg,#0891b2,#06b6d4)"},
+          ].map(n=>(
+            <button key={n.code} onClick={()=>setCode(n.code)}
+              style={{padding:"10px 8px",border:"2px solid",borderRadius:12,cursor:"pointer",fontFamily:"inherit",fontWeight:800,fontSize:13,textAlign:"center",transition:"all 0.15s",
+                background:code===n.code?n.grad:"rgba(255,255,255,0.04)",
+                borderColor:code===n.code?"transparent":"rgba(255,255,255,0.1)",
+                color:code===n.code?"white":"#8b8fa8"}}>
+              {n.emoji} {n.label} <span style={{opacity:0.75,fontSize:11}}>({n.code})</span>
+            </button>
+          ))}
+        </div>
       </div>
 
       <div style={{background:"rgba(16,185,129,0.06)",border:"1px solid rgba(16,185,129,0.2)",borderRadius:12,padding:"12px 14px",marginBottom:10}}>
@@ -364,7 +384,7 @@ function QRMain({sims,bot,chat,onMarkPrinted,onUnmarkPrinted,onDeleteSim,onPrevi
             </div>
             {s.phone?<div style={{color:"#6b7280",fontSize:10,fontWeight:700}}>📞 {s.phone}</div>:<div style={{color:"#6b7280",fontSize:9}}>📞 รับหลังลงทะเบียน</div>}
             <div style={{display:"flex",alignItems:"center",gap:3,justifyContent:"center",marginTop:2}}>
-              {s.simCode&&<span style={{background:s.simCode==="K"?"#4f46e5":"#059669",color:"white",fontSize:9,fontWeight:800,borderRadius:3,padding:"1px 4px"}}>{s.simCode}</span>}
+              {s.simCode&&<span style={{background:netColor(s.simCode),color:"white",fontSize:9,fontWeight:800,borderRadius:3,padding:"1px 4px"}}>{s.simCode}</span>}
               <span style={{color:"#e2e8f0",fontSize:10,fontWeight:700}}>ซิมหมายเลข: {s.trackingNo}</span>
             </div>
             <div style={{display:"flex",gap:4,marginTop:6}}>
@@ -387,7 +407,7 @@ function QRMain({sims,bot,chat,onMarkPrinted,onUnmarkPrinted,onDeleteSim,onPrevi
             </div>
             <div style={{flex:1,minWidth:0}}>
               <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2}}>
-                {s.simCode&&<span style={{background:s.simCode==="K"?"#4f46e5":"#059669",color:"white",fontSize:9,fontWeight:800,borderRadius:3,padding:"1px 5px"}}>{s.simCode}</span>}
+                {s.simCode&&<span style={{background:netColor(s.simCode),color:"white",fontSize:9,fontWeight:800,borderRadius:3,padding:"1px 5px"}}>{s.simCode}</span>}
                 <span style={{color:"#e2e8f0",fontWeight:700,fontSize:13}}>ซิมหมายเลข: {s.trackingNo}</span>
               </div>
               <div style={{color:"#8b8fa8",fontSize:11,fontFamily:"monospace",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.serial}</div>
@@ -406,7 +426,14 @@ function QRMain({sims,bot,chat,onMarkPrinted,onUnmarkPrinted,onDeleteSim,onPrevi
 function PendingTab({sims,onMarkScanned,onPreview}){
   const [q,setQ]=useState("");
   const all=sims.filter(s=>!s.scannedByCustomer);
-  const fl=all.filter(s=>!q||s.serial.toLowerCase().includes(q.toLowerCase())||s.trackingNo.includes(q)||(s.phone||"").includes(q));
+  const fl=all.filter(s=>{
+    if(!q)return true;
+    const ql=q.toLowerCase();
+    return s.serial.toLowerCase().includes(ql)||
+           s.trackingNo.toLowerCase().includes(ql)||
+           (s.simCode||"").toLowerCase()+s.trackingNo.toLowerCase().includes(ql)||
+           (s.phone||"").includes(q);
+  });
   return<div style={C.card}>
     <h3 style={C.h3}>⏳ รอสแกน ({all.length})</h3>
     <input style={{...C.inp,marginBottom:12}} value={q} onChange={e=>setQ(e.target.value)}
@@ -417,7 +444,7 @@ function PendingTab({sims,onMarkScanned,onPreview}){
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2}}>
-              {s.simCode&&<span style={{background:s.simCode==="K"?"#4f46e5":"#059669",color:"white",fontSize:9,fontWeight:800,borderRadius:3,padding:"1px 5px"}}>{s.simCode}</span>}
+              {s.simCode&&<span style={{background:netColor(s.simCode),color:"white",fontSize:9,fontWeight:800,borderRadius:3,padding:"1px 5px"}}>{s.simCode}</span>}
               <span style={{color:"#a78bfa",fontWeight:700,fontSize:12}}>ซิมหมายเลข: {s.trackingNo}</span>
             </div>
             <div style={{color:"white",fontFamily:"monospace",fontSize:12}}>{s.serial}</div>
@@ -558,13 +585,114 @@ function Summary({sims,bot,chat}){
   </div>;
 }
 
+const NET_DEFAULTS={
+  K:{label:"True (K)",color:"#e53e3e",url:"https://app.true.th/prepaid-registration?language=th"},
+  L:{label:"True (L)",color:"#4f46e5",url:"https://app.true.th/prepaid-registration?language=th"},
+  A:{label:"AIS",color:"#d97706",url:"https://kyc.cloud.ais.th/client/select-cardtype"},
+  D:{label:"DTAC",color:"#0891b2",url:""},
+};
+const NET_LS="net_config_v1";
+const loadNetCfg=()=>{try{return JSON.parse(lsG(NET_LS)||"{}");}catch(e){return{};}};
+const saveNetCfgLS=cfg=>lsS(NET_LS,JSON.stringify(cfg));
+
 function Settings({bot,chat,setBot,setChat,onSave}){
   const [b,setB]=useState(bot),[cc,setCC]=useState(chat);
+  const [nets,setNets]=useState(()=>{
+    const saved=loadNetCfg();
+    const merged={};
+    Object.keys(NET_DEFAULTS).forEach(k=>{merged[k]={...NET_DEFAULTS[k],...(saved[k]||{})};});
+    return merged;
+  });
+  const [saving,setSaving]=useState(false);
+  const [tab,setTab]=useState("tg"); // "tg" | "network"
+
+  const updNet=(code,field,val)=>setNets(prev=>({...prev,[code]:{...prev[code],[field]:val}}));
+
+  const uploadLogo=(code,e)=>{
+    const file=e.target.files?.[0];if(!file)return;
+    if(file.size>200000){alert("รูปใหญ่เกินไป กรุณาใช้ไฟล์ไม่เกิน 200KB");return;}
+    const rd=new FileReader();
+    rd.onload=ev=>updNet(code,"logo",ev.target.result);
+    rd.readAsDataURL(file);
+  };
+
+  const saveAll=async()=>{
+    setSaving(true);
+    setBot(b);setChat(cc);
+    lsS("tg_bot",b);lsS("tg_chat",cc);
+    saveNetCfgLS(nets);
+    // บันทึก net config ลง Firebase ด้วย เพื่อให้ landing page ดึงได้
+    await fbS("/net_config",nets).catch(()=>{});
+    setSaving(false);
+    onSave();
+  };
+
   return<div style={C.card}>
-    <h3 style={C.h3}>⚙️ ตั้งค่า Telegram</h3>
-    <div style={{marginBottom:12}}><div style={{color:"#94a3b8",fontSize:12,marginBottom:6}}>Bot Token</div><input style={C.inp} value={b} onChange={e=>setB(e.target.value)} placeholder="Bot Token..."/></div>
-    <div style={{marginBottom:16}}><div style={{color:"#94a3b8",fontSize:12,marginBottom:6}}>Chat ID</div><input style={C.inp} value={cc} onChange={e=>setCC(e.target.value)} placeholder="Chat ID..."/></div>
-    <button style={C.btnP} onClick={()=>{setBot(b);setChat(cc);lsS("tg_bot",b);lsS("tg_chat",cc);onSave();}}>💾 บันทึก</button>
+    <h3 style={C.h3}>⚙️ ตั้งค่า</h3>
+    <div style={{display:"flex",gap:6,marginBottom:16}}>
+      {[{id:"tg",label:"📱 Telegram"},{id:"network",label:"🌐 เครือข่าย"}].map(t=>(
+        <button key={t.id} onClick={()=>setTab(t.id)}
+          style={{flex:1,padding:"9px",border:"none",borderRadius:10,cursor:"pointer",fontFamily:"inherit",fontWeight:700,fontSize:13,
+            background:tab===t.id?"rgba(255,255,255,0.12)":"rgba(255,255,255,0.04)",
+            color:tab===t.id?"#a5b4fc":"#8b8fa8",
+            borderBottom:tab===t.id?"2px solid #a5b4fc":"2px solid transparent"}}>
+          {t.label}
+        </button>
+      ))}
+    </div>
+
+    {tab==="tg"&&<div>
+      <div style={{marginBottom:12}}>
+        <div style={{color:"#94a3b8",fontSize:12,marginBottom:6}}>Bot Token</div>
+        <input style={C.inp} value={b} onChange={e=>setB(e.target.value)} placeholder="Bot Token..."/>
+      </div>
+      <div style={{marginBottom:16}}>
+        <div style={{color:"#94a3b8",fontSize:12,marginBottom:6}}>Chat ID</div>
+        <input style={C.inp} value={cc} onChange={e=>setCC(e.target.value)} placeholder="Chat ID..."/>
+      </div>
+    </div>}
+
+    {tab==="network"&&<div>
+      <div style={{color:"#8b8fa8",fontSize:12,marginBottom:14}}>ตั้งค่าโลโก้และลิงก์ลงทะเบียนของแต่ละเครือข่าย (ลูกค้าจะเห็นในหน้าสแกน QR)</div>
+      {Object.entries(nets).map(([code,cfg])=>(
+        <div key={code} style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:14,padding:14,marginBottom:12}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
+            <div style={{width:8,height:8,borderRadius:"50%",background:cfg.color,flexShrink:0}}/>
+            <span style={{color:"white",fontWeight:700,fontSize:14}}>{cfg.label}</span>
+            <span style={{background:cfg.color,color:"white",fontSize:10,fontWeight:800,borderRadius:4,padding:"1px 7px"}}>{code}</span>
+          </div>
+
+          {/* โลโก้ */}
+          <div style={{marginBottom:10}}>
+            <div style={{color:"#94a3b8",fontSize:11,marginBottom:6}}>โลโก้เครือข่าย</div>
+            <div style={{display:"flex",alignItems:"center",gap:10}}>
+              {cfg.logo
+                ?<img src={cfg.logo} alt={cfg.label} style={{width:52,height:52,objectFit:"contain",background:"white",borderRadius:8,padding:4}}/>
+                :<div style={{width:52,height:52,background:"rgba(255,255,255,0.06)",borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>
+                  {code==="A"?"🟡":code==="D"?"🔵":code==="K"?"🔴":"🟣"}
+                </div>
+              }
+              <label style={{...C.btnS,fontSize:12,cursor:"pointer",display:"inline-block",padding:"7px 14px"}}>
+                📷 {cfg.logo?"เปลี่ยนโลโก้":"อัปโหลดโลโก้"}
+                <input type="file" accept="image/*" style={{display:"none"}} onChange={e=>uploadLogo(code,e)}/>
+              </label>
+              {cfg.logo&&<button onClick={()=>updNet(code,"logo","")} style={{...C.btnD,fontSize:11,padding:"6px 10px"}}>🗑</button>}
+            </div>
+          </div>
+
+          {/* ลิงก์ลงทะเบียน */}
+          <div>
+            <div style={{color:"#94a3b8",fontSize:11,marginBottom:6}}>ลิงก์ลงทะเบียนซิม</div>
+            <input style={{...C.inp,fontSize:12}} value={cfg.url} onChange={e=>updNet(code,"url",e.target.value)}
+              placeholder={"https://..."}/>
+          </div>
+        </div>
+      ))}
+    </div>}
+
+    <button style={{...C.btnP,marginTop:4,opacity:saving?0.6:1}} disabled={saving} onClick={saveAll}>
+      {saving?"⏳ กำลังบันทึก...":"💾 บันทึกทั้งหมด"}
+    </button>
   </div>;
 }
 
