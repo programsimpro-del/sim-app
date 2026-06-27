@@ -758,24 +758,48 @@ function ArchivedTab(){
 
     {loading?<div style={{textAlign:"center",padding:32,color:"#8b8fa8"}}>⏳ กำลังโหลด...</div>:
     fl.length===0?<div style={{textAlign:"center",padding:32,color:"#8b8fa8"}}>📭 ยังไม่มีซิมใน archive</div>:
-    <div style={{overflowX:"auto"}}>
-      <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-        <thead><tr>
-          <th style={C.th}>Serial</th>
-          <th style={C.th}>เลขติดตาม</th>
-          <th style={C.th}>เบอร์</th>
-          <th style={C.th}>พิมพ์เมื่อ</th>
-          <th style={C.th}>สถานะ</th>
-        </tr></thead>
-        <tbody>{fl.map(s=><tr key={s.serial}>
-          <td style={{...C.td,fontFamily:"monospace",fontSize:11}}>{s.serial}</td>
-          <td style={C.td}>{s.trackingNo}</td>
-          <td style={C.td}>{s.phone||"-"}</td>
-          <td style={{...C.td,fontSize:11}}>{s.printedAt?new Date(s.printedAt).toLocaleString("th-TH"):"-"}</td>
-          <td style={C.td}>{s.scannedByCustomer?<span style={{color:"#6ee7b7",fontWeight:700}}>✅ สแกนแล้ว</span>:<span style={{color:"#f59e0b"}}>⏳ รอสแกน</span>}</td>
-        </tr>)}</tbody>
-      </table>
-    </div>}
+    <div>{fl.map(s=>(
+      <div key={s.serial} style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:10,padding:"10px 14px",marginBottom:8}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2}}>
+              {s.simCode&&<span style={{background:netColor(s.simCode),color:"white",fontSize:9,fontWeight:800,borderRadius:3,padding:"1px 5px"}}>{s.simCode}</span>}
+              <span style={{color:"#a78bfa",fontWeight:700,fontSize:12}}>ซิมหมายเลข: {s.trackingNo}</span>
+            </div>
+            <div style={{color:"#e2e8f0",fontFamily:"monospace",fontSize:11,marginBottom:2}}>{s.serial}</div>
+            {s.phone&&<div style={{color:"#6ee7b7",fontSize:11}}>📞 {s.phone}</div>}
+            <div style={{color:"#8b8fa8",fontSize:10,marginTop:2}}>
+              {s.scannedByCustomer
+                ?<span style={{color:"#6ee7b7"}}>✅ ลูกค้าสแกนแล้ว {s.scannedAt?new Date(s.scannedAt).toLocaleString("th-TH"):""}</span>
+                :<span style={{color:"#f59e0b"}}>⏳ รอสแกน</span>}
+            </div>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:5,flexShrink:0}}>
+            {!s.scannedByCustomer&&<button
+              onClick={()=>{
+                if(!confirm("ย้าย "+s.trackingNo+" ไปลงทะเบียนแล้ว?"))return;
+                const now=Date.now();
+                // อัปเดตทุก path ที่อาจเก็บซิมนี้อยู่
+                [DB.arc,"/sims_plain_archived","/sims_free_archived","/sims","/sims_plain","/sims_free"].forEach(p=>{
+                  fbP(p+"/"+toKey(s.serial),{scannedByCustomer:true,scannedAt:now}).catch(()=>{});
+                });
+                setSims(prev=>prev.map(x=>x.serial===s.serial?{...x,scannedByCustomer:true,scannedAt:now}:x));
+              }}
+              style={{...C.btnP,fontSize:11,padding:"5px 10px",whiteSpace:"nowrap"}}>✅ ลงทะเบียนแล้ว</button>}
+            <button
+              onClick={()=>{
+                if(!confirm("ลบซิม "+s.trackingNo+" ออกจากระบบทั้งหมด?"))return;
+                // ลบออกจากทุก path
+                [DB.arc,"/sims_plain_archived","/sims_free_archived","/sims","/sims_plain","/sims_free"].forEach(p=>{
+                  fbD(p+"/"+toKey(s.serial)).catch(()=>{});
+                });
+                setSims(prev=>prev.filter(x=>x.serial!==s.serial));
+              }}
+              style={{...C.btnD,fontSize:11,padding:"5px 10px"}}>🗑 ลบ</button>
+          </div>
+        </div>
+      </div>
+    ))}</div>}
   </div>;
 }
 
