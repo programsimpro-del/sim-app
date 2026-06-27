@@ -732,14 +732,14 @@ function ArchivedTab(){
   // ดึง serial จากข้อความ Telegram หรือข้อความทั่วไป
   const extractSerials=text=>{
     const found=new Set();
-    // จับจากบรรทัด "เลขซีเรียลซิม: XXXX"
-    const r1=text.matchAll(/เลขซีเรียลซิม[:\s]+([^\s
-📞🔢⏰✅🔔📋]+)/g);
-    for(const m of r1)found.add(m[1].trim());
-    // จับตัวเลขยาว 10+ หลัก
-    const r2=text.matchAll(/(\d{10,20})/g);
-    for(const m of r2)found.add(m[1].trim());
-    return [...found].filter(s=>s.length>=8);
+    const rows=text.split("\n");
+    rows.forEach(line=>{
+      const m1=line.match(/เลขซีเรียลซิม[: ]+([0-9A-Za-z]{8,})/);
+      if(m1)found.add(m1[1].trim());
+      const m2=line.match(/([0-9]{10,20})/);
+      if(m2)found.add(m2[1].trim());
+    });
+    return[...found].filter(s=>s.length>=8);
   };
 
   const doBulkSearch=async()=>{
