@@ -531,7 +531,13 @@ function Summary({sims:simsFromState,bot,chat,simType,onRefresh}){
     setRefreshing(false);
   },[simType]);
 
-  useEffect(()=>{doRefresh();},[doRefresh]);
+  useEffect(()=>{
+    doRefresh();
+    const id=setInterval(doRefresh,30000);
+    const onVisible=()=>{if(!document.hidden)doRefresh();};
+    document.addEventListener("visibilitychange",onVisible);
+    return()=>{clearInterval(id);document.removeEventListener("visibilitychange",onVisible);};
+  },[doRefresh]);
 
   const sims=freshSims||simsFromState;
   const getScannedDate=s=>{
@@ -781,6 +787,65 @@ function App(){
 
   useEffect(()=>{
     loadAll().then(d=>{setPSims(d.plain||[]);setFSims(d.free||[]);setBot(d.bot);setChat(d.chat);setLoading(false);});
+  },[]);
+
+  // Realtime polling — ดึงข้อมูลจาก Firebase ทุก 30 วินาที
+  useEffect(()=>{
+    const poll=async()=>{
+      try{
+        const paths=["/sims_plain","/sims","/sims_free"];
+        const [dp,dl,df]=await Promise.all(paths.map(p=>
+          Promise.race([fbG(p),new Promise((_,r)=>setTimeout(()=>r(null),5000))]).catch(()=>null)
+        ));
+        const mergePath=(d,setter,prev)=>{
+          if(!d||typeof d!=="object"||d.error)return;
+          const fb=Object.values(d).filter(s=>s&&s.serial);
+          if(!fb.length)return;
+          setter(old=>{
+            let changed=false;
+            const map={};old.forEach(s=>{map[s.serial]=s;});
+            fb.forEach(s=>{
+              const o=map[s.serial];
+              if(o&&!o.scannedByCustomer&&s.scannedByCustomer){changed=true;}
+              map[s.serial]={...o,...s};
+            });
+            if(changed){
+              const next=Object.values(map);
+              lsS(prev,JSON.stringify(next));
+              return next;
+            }
+            return old;
+          });
+        };
+        // merge plain + legacy /sims
+        const mergedPlain={};
+        [dp,dl].forEach(d=>{if(d&&typeof d==="object"&&!d.error)Object.values(d).filter(s=>s&&s.serial).forEach(s=>{mergedPlain[s.serial]=s;});});
+        const plainArr=Object.values(mergedPlain);
+        if(plainArr.length){
+          setPSims(old=>{
+            let changed=false;
+            const map={};old.forEach(s=>{map[s.serial]=s;});
+            plainArr.forEach(s=>{const o=map[s.serial];if(o&&!o.scannedByCustomer&&s.scannedByCustomer)changed=true;map[s.serial]={...o,...s};});
+            if(changed){const next=Object.values(map);lsS(TYPES.plain.ls,JSON.stringify(next));return next;}
+            return old;
+          });
+        }
+        if(df&&typeof df==="object"&&!df.error){
+          const freeArr=Object.values(df).filter(s=>s&&s.serial);
+          if(freeArr.length){
+            setFSims(old=>{
+              let changed=false;
+              const map={};old.forEach(s=>{map[s.serial]=s;});
+              freeArr.forEach(s=>{const o=map[s.serial];if(o&&!o.scannedByCustomer&&s.scannedByCustomer)changed=true;map[s.serial]={...o,...s};});
+              if(changed){const next=Object.values(map);lsS(TYPES.free.ls,JSON.stringify(next));return next;}
+              return old;
+            });
+          }
+        }
+      }catch(e){}
+    };
+    const id=setInterval(poll,30000);
+    return()=>clearInterval(id);
   },[]);
 
   const t3=(msg,type)=>{setToast({msg,type:"ok",...(type?{type}:{})});setTimeout(()=>setToast(null),3000);};
