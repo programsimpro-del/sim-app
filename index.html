@@ -206,14 +206,25 @@ function Scanner({onScan,sims}){
   return(
     <div style={C.card}>
       <h3 style={C.h3}>📷 ยิงเลขซีเรียลซิม</h3>
-      <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:14}}>
-        <span style={{color:"#94a3b8",fontSize:13,fontWeight:600}}>โค้ดซิม:</span>
-        {["K","L"].map(k=>(
-          <button key={k} onClick={()=>setCode(k)}
-            style={{padding:"8px 24px",border:"none",borderRadius:10,cursor:"pointer",fontFamily:"inherit",fontWeight:700,fontSize:15,
-              background:code===k?(k==="K"?"linear-gradient(135deg,#4f46e5,#7c3aed)":"linear-gradient(135deg,#059669,#10b981)"):"rgba(255,255,255,0.06)",
-              color:code===k?"white":"#8b8fa8"}}>{k}</button>
-        ))}
+      <div style={{marginBottom:14}}>
+        <div style={{color:"#94a3b8",fontSize:12,fontWeight:600,marginBottom:8}}>เครือข่าย:</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+          {[
+            {code:"K",label:"True",color:"#e53e3e"},
+            {code:"L",label:"True",color:"#4f46e5"},
+            {code:"A",label:"AIS",color:"#d97706"},
+            {code:"D",label:"DTAC",color:"#0891b2"},
+          ].map(n=>(
+            <button key={n.code} onClick={()=>setCode(n.code)}
+              style={{padding:"10px 8px",border:"2px solid",borderRadius:12,cursor:"pointer",fontFamily:"inherit",fontWeight:800,fontSize:13,
+                textAlign:"center",
+                background:code===n.code?n.color:"rgba(255,255,255,0.04)",
+                borderColor:code===n.code?n.color:"rgba(255,255,255,0.1)",
+                color:code===n.code?"white":"#8b8fa8"}}>
+              {n.label} <span style={{opacity:0.75,fontSize:11}}>({n.code})</span>
+            </button>
+          ))}
+        </div>
       </div>
 
       <div style={{background:"rgba(16,185,129,0.06)",border:"1px solid rgba(16,185,129,0.2)",borderRadius:12,padding:"12px 14px",marginBottom:10}}>
