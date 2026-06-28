@@ -753,13 +753,13 @@ function App(){
     const raw=rsv||genNo(new Set(sims.map(s=>s.trackingNo)));
     const trk=code?code+raw:raw;
     const ns={serial,trackingNo:trk,phone:phone||"",simCode:code||"",simType:st,scannedByCustomer:false,scannedAt:null,createdAt:Date.now(),printed:false};
-    setSims(prev=>{const u=[ns,...prev];saveT(u,st);addFB(ns,st);return u;});
+    setSims(prev=>{const u=[ns,...prev];lsS(TYPES[st].ls,JSON.stringify(u));addFB(ns,st);return u;});
     t3("✅ เพิ่มซิม (เลขติดตาม: "+trk+")");
   };
 
   const delSim=serial=>{
     if(!confirm("ลบซิม "+serial+" ?"))return;
-    setSims(prev=>{const u=prev.filter(s=>s.serial!==serial);saveT(u,st);delFB(serial,st);return u;});
+    setSims(prev=>{const u=prev.filter(s=>s.serial!==serial);lsS(TYPES[st].ls,JSON.stringify(u));delFB(serial,st);return u;});
     t3("🗑️ ลบแล้ว","warn");
   };
 
