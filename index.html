@@ -553,9 +553,26 @@ function Summary({sims,bot,chat,simType,onRefresh}){
 
   const getScannedDate=s=>{
     if(s.scannedAt){try{return new Date(s.scannedAt).toISOString().slice(0,10);}catch(e){}}
+    // ถ้าไม่มี scannedAt แต่ scannedByCustomer=true ให้ดูจาก phone ที่อาจ set วันนี้
     return null;
   };
-  const ts=sims.filter(s=>s.scannedByCustomer&&getScannedDate(s)===today);
+  // คำนวณช่วงวันนี้ตาม timezone ไทย UTC+7
+  const nowTH=new Date(new Date().toLocaleString("en-US",{timeZone:"Asia/Bangkok"}));
+  const todayStr=nowTH.toISOString().slice(0,10);
+  const startOfDay=new Date(todayStr+"T00:00:00+07:00").getTime();
+  const endOfDay=startOfDay+86400000;
+
+  const ts=sims.filter(s=>{
+    if(!s.scannedByCustomer)return false;
+    if(!s.scannedAt){
+      // ซิมเก่าไม่มี scannedAt — ถ้า patch แล้วจะมี แต่ถ้ายังไม่มีให้นับด้วย
+      return true;
+    }
+    try{
+      const t=typeof s.scannedAt==="number"?s.scannedAt:Number(s.scannedAt)||new Date(s.scannedAt).getTime();
+      return t>=startOfDay&&t<endOfDay;
+    }catch(e){return true;}
+  });
   const sm={};
   sims.forEach(s=>{
     try{
