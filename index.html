@@ -501,9 +501,26 @@ function SimList({sims,onDelete,onUpdatePhone}){
     </div>}
   </div>;
 }
-function Summary({sims,bot,chat,simType}){
+function Summary({sims:simsFromState,bot,chat,simType,onRefresh}){
   const [sending,setSending]=useState(false),[lastSent,setLastSent]=useState("");
+  const [freshSims,setFreshSims]=useState(null),[refreshing,setRefreshing]=useState(false);
   const today=todayS();
+
+  const doRefresh=useCallback(async()=>{
+    setRefreshing(true);
+    try{
+      const d=await Promise.race([fbG(TYPES[simType].path),new Promise((_,r)=>setTimeout(()=>r("to"),6000))]);
+      if(d&&typeof d==="object"&&!d.error){
+        const fb=Object.values(d).filter(s=>s&&s.serial);
+        setFreshSims(fb);
+      }
+    }catch(e){}
+    setRefreshing(false);
+  },[simType]);
+
+  useEffect(()=>{doRefresh();},[doRefresh]);
+
+  const sims=freshSims||simsFromState;
   const getScannedDate=s=>{
     if(s.scannedAt){try{return new Date(s.scannedAt).toISOString().slice(0,10);}catch(e){}}
     return null;
@@ -529,8 +546,15 @@ function Summary({sims,bot,chat,simType}){
   };
   return<div style={C.card}>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:8}}>
-      <h3 style={{...C.h3,margin:0}}>📊 สรุปข้อมูล</h3>
-      <button onClick={send} disabled={sending} style={{...C.btnP,opacity:sending?0.6:1}}>{sending?"⏳ กำลังส่ง...":"📤 ส่ง Report Telegram"}</button>
+      <div style={{display:"flex",alignItems:"center",gap:8}}>
+        <h3 style={{...C.h3,margin:0}}>📊 สรุปข้อมูล</h3>
+        {refreshing&&<div style={{width:16,height:16,border:"2px solid rgba(255,255,255,0.1)",borderTop:"2px solid #a78bfa",borderRadius:"50%",animation:"spin 1s linear infinite"}}/>}
+        {!refreshing&&freshSims&&<span style={{color:"#6ee7b7",fontSize:11}}>✓ ข้อมูลล่าสุด</span>}
+      </div>
+      <div style={{display:"flex",gap:6}}>
+        <button onClick={doRefresh} disabled={refreshing} style={{...C.btnS,opacity:refreshing?0.5:1,fontSize:13,padding:"8px 14px"}}>🔄 รีเฟรช</button>
+        <button onClick={send} disabled={sending} style={{...C.btnP,opacity:sending?0.6:1}}>{sending?"⏳ กำลังส่ง...":"📤 ส่ง Report"}</button>
+      </div>
     </div>
     {lastSent&&<div style={{background:"rgba(5,150,105,0.12)",border:"1px solid rgba(5,150,105,0.3)",borderRadius:10,padding:"8px 14px",marginBottom:12,fontSize:12,color:"#6ee7b7"}}>✅ ส่งล่าสุดเวลา {lastSent} น.</div>}
     <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:16}}>
