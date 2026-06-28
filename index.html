@@ -480,7 +480,7 @@ function Summary({sims,bot,chat,simType}){
     const now=new Date();
     const ds=now.toLocaleDateString("th-TH",{year:"numeric",month:"long",day:"numeric"});
     const tm=now.toLocaleTimeString("th-TH");
-    const tn=TYPES[simType].emoji+" "+TYPES[simType].label;
+    const tn="";
     const lines=ts.map((s,i)=>(i+1)+". "+s.serial+"\n   📞 "+(s.phone||"-")).join("\n\n");
     const msg="📊 รายงานประจำวัน 📦 ซิมเปล่า"+"\n📅 วันที่: "+ds+" เวลา "+tm+"\n─────────────────────────\n✅ ลงทะเบียนวันนี้: "+ts.length+" ซิม\n\n─────────────────────────\n"+(ts.length>0?"📋 รายการวันนี้:\n\n"+lines:"📋 ยังไม่มีลูกค้าลงทะเบียนวันนี้");
     try{
