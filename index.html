@@ -4,10 +4,41 @@
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"/>
 <title>SIM Tracker</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script>
+// Fallback CDN loader - ป้องกันจอดำถ้า CDN ใดโหลดช้า/ล้มเหลว
+window.__cdnFallbacks = {
+  react: [
+    "https://unpkg.com/react@18/umd/react.production.min.js",
+    "https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js"
+  ],
+  reactdom: [
+    "https://unpkg.com/react-dom@18/umd/react-dom.production.min.js",
+    "https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js"
+  ],
+  qrcode: [
+    "https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js",
+    "https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"
+  ]
+};
+function loadScript(urls, cb) {
+  var i = 0;
+  function tryNext() {
+    if (i >= urls.length) { if(cb) cb(new Error("All CDNs failed")); return; }
+    var s = document.createElement("script");
+    s.src = urls[i++];
+    s.onload = function() { if(cb) cb(null); };
+    s.onerror = function() { tryNext(); };
+    document.head.appendChild(s);
+  }
+  tryNext();
+}
+</script>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"
+  onerror="loadScript(window.__cdnFallbacks.react)"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"
+  onerror="loadScript(window.__cdnFallbacks.reactdom)"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"
+  onerror="loadScript(window.__cdnFallbacks.qrcode)"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:linear-gradient(160deg,#0a0a1a,#0f172a,#1a0a2e);min-height:100vh;font-family:"Noto Sans Thai",Sarabun,sans-serif;color:white}
@@ -15,1123 +46,912 @@ body{background:linear-gradient(160deg,#0a0a1a,#0f172a,#1a0a2e);min-height:100vh
 ::-webkit-scrollbar-thumb{background:rgba(167,139,250,0.3);border-radius:2px}
 @keyframes spin{to{transform:rotate(360deg)}}
 </style>
-<script>
-window.onerror=function(msg,src,line){
-  var r=document.getElementById("root");
-  if(r&&!r.innerHTML){r.innerHTML='<div style="padding:40px;text-align:center;color:white;"><div style="font-size:48px">⚠️</div><div style="font-size:18px;margin-top:16px">โหลดแอปไม่สำเร็จ</div><div style="color:#8b8fa8;font-size:13px;margin-top:8px">กรุณาตรวจสอบการเชื่อมต่ออินเทอร์เน็ต แล้วรีเฟรชหน้านี้</div><button onclick="location.reload()" style="margin-top:20px;padding:10px 24px;background:#4f46e5;color:white;border:none;border-radius:10px;font-size:14px;cursor:pointer;font-family:inherit">🔄 รีเฟรช</button></div>';}
-};
-</script>
 </head>
 <body>
-<div id="root"></div>
-<script type="text/babel">
-const {useState,useEffect,useRef,useCallback}=React;
+<div id="root">
+  <div id="init-loader" style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;color:white;font-family:sans-serif;gap:16px;">
+    <div style="font-size:52px">📶</div>
+    <div style="font-size:18px;font-weight:700">SIM Tracker</div>
+    <div style="color:#8b8fa8;font-size:13px">กำลังโหลด...</div>
+    <div style="width:36px;height:36px;border:3px solid rgba(255,255,255,0.1);border-top:3px solid #a78bfa;border-radius:50%;animation:spin 1s linear infinite"></div>
+    <div id="init-error" style="display:none;color:#f87171;font-size:13px;text-align:center;max-width:300px;padding:12px;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:10px;margin-top:8px"></div>
+  </div>
+</div>
+<script>
+setTimeout(function(){
+  var errEl=document.getElementById("init-error");
+  var loader=document.getElementById("init-loader");
+  if(loader&&errEl&&!window.__appMounted){
+    if(!window.React||!window.ReactDOM){
+      errEl.style.display="block";
+      errEl.textContent="⚠️ โหลด Script ไม่สำเร็จ กรุณาตรวจสอบการเชื่อมต่ออินเทอร์เน็ต แล้วกดรีโหลดหน้า";
+    }
+  }
+},12000);
+</script>
+<script>
+
+const { useState, useEffect, useRef, useCallback } = React;
 
 // Firebase
-const FB="https://simtracker-3a70d-default-rtdb.asia-southeast1.firebasedatabase.app";
-const DB={path:"/sims",ls:"sims_v2",arc:"/sims_archived"};
-const toKey=s=>String(s).replace(/[.#$[\]\/]/g,"_");
-const arcFB=s=>fbS(DB.arc+"/"+toKey(s.serial),s).catch(()=>{});
-const searchArc=async serial=>{
-  // ค้นหาจากทุก archive path (รองรับซิมเก่าและใหม่)
-  const paths=[DB.arc,"/sims_plain_archived","/sims_free_archived","/sims_plain","/sims_free","/sims"];
-  for(const p of paths){
-    try{
-      const d=await fbG(p+"/"+toKey(serial));
-      if(d&&d.serial)return{...d,_archived:true};
-    }catch(e){}
-  }
-  return null;
+const FB = "https://simtracker-3a70d-default-rtdb.asia-southeast1.firebasedatabase.app";
+const TYPES = {
+  plain: { path: "/sims_plain", ls: "sim_plain_v1", label: "ซิมเปล่า", emoji: "📦", color: "#4f46e5" },
+  free: { path: "/sims_free", ls: "sim_free_v1", label: "ซิมฟรีเดือนแรก", emoji: "🎁", color: "#059669" }
 };
-const lsG=k=>{try{return localStorage.getItem(k)}catch(e){return null}};
-const lsS=(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}};
-const fbG=p=>fetch(FB+p+".json").then(r=>r.json());
-const fbS=(p,d)=>fetch(FB+p+".json",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(d)});
-const fbP=(p,d)=>fetch(FB+p+".json",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(d)});
-const fbD=p=>fetch(FB+p+".json",{method:"DELETE"});
+const toKey = (s) => String(s).replace(/[.#$[\]]/g, "_");
+const lsG = (k) => {try {return localStorage.getItem(k);} catch (e) {return null;}};
+const lsS = (k, v) => {try {localStorage.setItem(k, v);} catch (e) {}};
+const fbG = (p) => fetch(FB + p + ".json").then((r) => r.json());
+const fbS = (p, d) => fetch(FB + p + ".json", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(d) });
+const fbP = (p, d) => fetch(FB + p + ".json", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(d) });
+const fbD = (p) => fetch(FB + p + ".json", { method: "DELETE" });
 
-const loadAll=async()=>{
-  let loc=[];try{loc=JSON.parse(lsG(DB.ls)||"[]");}catch(e){}
-  try{
-    const d=await Promise.race([fbG(DB.path),new Promise((_,r)=>setTimeout(()=>r("to"),3000))]);
-    if(d&&typeof d==="object"&&!d.error){
-      const fb=Object.values(d).filter(s=>s&&s.serial);
-      if(fb.length>0){
-        const locMap={};loc.forEach(s=>{locMap[s.serial]=s;});
-        const merged=fb.map(s=>{const ls=locMap[s.serial];return ls?{...s,printed:s.printed||ls.printed||false,scannedByCustomer:s.scannedByCustomer||ls.scannedByCustomer||false}:s;});
-        lsS(DB.ls,JSON.stringify(merged));
-        return{sims:merged,bot:lsG("tg_bot")||"",chat:lsG("tg_chat")||""};
-      }
+const loadT = async (t) => {
+  const cfg = TYPES[t],raw = lsG(cfg.ls) || "[]";
+  let loc = [];try {loc = JSON.parse(raw);} catch (e) {}
+  try {
+    const d = await Promise.race([fbG(cfg.path), new Promise((_, r) => setTimeout(() => r("to"), 5000))]);
+    if (d && typeof d === "object" && !d.error) {
+      const fb = Object.values(d).filter((s) => s && s.serial);
+      if (fb.length > 0) {lsS(cfg.ls, JSON.stringify(fb));return fb;}
     }
-  }catch(e){}
-  return{sims:loc,bot:lsG("tg_bot")||"",chat:lsG("tg_chat")||""};
+  } catch (e) {}
+  return loc;
 };
-const saveAll=(sims)=>{lsS(DB.ls,JSON.stringify(sims));const obj={};sims.forEach(s=>{obj[toKey(s.serial)]=s;});fbS(DB.path,obj).catch(()=>{});};
-const addFB=s=>fbS(DB.path+"/"+toKey(s.serial),s).catch(()=>{});
-const updFB=(serial,u)=>fbP(DB.path+"/"+toKey(serial),u).catch(()=>{});
-const delFB=serial=>fbD(DB.path+"/"+toKey(serial)).catch(()=>{});
-const tgSend=(bot,chat,text)=>{
-  if(!bot||!chat)return;
-  fetch("https://api.telegram.org/bot"+bot+"/sendMessage",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({chat_id:chat,text})}).catch(()=>{});
+const loadAll = async () => {
+  const [plain, free] = await Promise.all([loadT("plain"), loadT("free")]);
+  return { plain, free, bot: lsG("tg_bot") || "", chat: lsG("tg_chat") || "" };
 };
-const genNo=used=>{let n;do{n=String(Math.floor(Math.random()*99999)+1);}while(used.has(n));return n;};
-const fmtD=ts=>ts?new Date(ts).toLocaleDateString("th-TH"):"-";
-const netColor=code=>({K:"#e53e3e",L:"#4f46e5",A:"#d97706",D:"#0891b2"}[code]||"#6b7280");
-const netLabel=code=>({K:"True",L:"True",A:"AIS",D:"DTAC"}[code]||code);
-const todayS=()=>new Date().toISOString().slice(0,10);
-const REG_URL={
-  K:"https://app.true.th/prepaid-registration?language=th",
-  L:"https://app.true.th/prepaid-registration?language=th",
-  A:"https://kyc.cloud.ais.th/client/select-cardtype",
-  D:"https://app.true.th/prepaid-registration?language=th",// TODO: ใส่ลิงก์ DTAC
+const saveT = (sims, t) => {
+  const cfg = TYPES[t];lsS(cfg.ls, JSON.stringify(sims));
+  const obj = {};sims.forEach((s) => {obj[toKey(s.serial)] = s;});
+  fbS(cfg.path, obj).catch(() => {});
 };
-const makeURL=(s,t,bot,chat,phone,code)=>{
-  let u="https://programsimpro-del.github.io/Sim/?s="+encodeURIComponent(s)+"&t="+encodeURIComponent(t);
-  if(bot)u+="&tgbot="+encodeURIComponent(bot);
-  if(chat)u+="&tgchat="+encodeURIComponent(chat);
-  if(phone)u+="&phone="+encodeURIComponent(phone);
-  if(code)u+="&net="+encodeURIComponent(code);
+const addFB = (s, t) => fbS(TYPES[t].path + "/" + toKey(s.serial), s).catch(() => {});
+const updFB = (serial, u, t) => fbP(TYPES[t].path + "/" + toKey(serial), u).catch(() => {});
+const delFB = (serial, t) => fbD(TYPES[t].path + "/" + toKey(serial)).catch(() => {});
+const tgSend = (bot, chat, text) => {
+  if (!bot || !chat) return;
+  fetch("https://api.telegram.org/bot" + bot + "/sendMessage", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chat_id: chat, text }) }).catch(() => {});
+};
+const genNo = (used) => {let n;do {n = String(Math.floor(Math.random() * 99999) + 1);} while (used.has(n));return n;};
+const fmtD = (ts) => ts ? new Date(ts).toLocaleDateString("th-TH") : "-";
+const todayS = () => new Date().toISOString().slice(0, 10);
+const makeURL = (s, t, bot, chat, phone) => {
+  let u = "https://programsimpro-del.github.io/Sim/?s=" + encodeURIComponent(s) + "&t=" + encodeURIComponent(t);
+  if (bot) u += "&tgbot=" + encodeURIComponent(bot);
+  if (chat) u += "&tgchat=" + encodeURIComponent(chat);
+  if (phone) u += "&phone=" + encodeURIComponent(phone);
   return u;
 };
-const regURL=code=>REG_URL[code]||REG_URL.K;
 
-const C={
-  card:{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:16,padding:16,margin:"12px 12px 0"},
-  h3:{color:"#e2e8f0",fontSize:15,fontWeight:700,marginBottom:12},
-  inp:{width:"100%",background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:10,padding:"10px 14px",color:"white",fontSize:14,outline:"none"},
-  btnP:{background:"linear-gradient(135deg,#4f46e5,#7c3aed)",border:"none",borderRadius:10,padding:"10px 18px",color:"white",fontWeight:700,cursor:"pointer",fontSize:14},
-  btnS:{background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:10,padding:"10px 14px",color:"#e2e8f0",fontWeight:600,cursor:"pointer",fontSize:13},
-  btnD:{background:"rgba(239,68,68,0.15)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:10,padding:"8px 12px",color:"#f87171",cursor:"pointer",fontSize:12},
-  btnX:{background:"rgba(239,68,68,0.2)",border:"1px solid rgba(239,68,68,0.5)",borderRadius:10,padding:"10px 14px",color:"#f87171",fontWeight:700,cursor:"pointer"},
-  th:{padding:"8px 10px",background:"rgba(255,255,255,0.06)",color:"#94a3b8",fontSize:12,fontWeight:600,textAlign:"left",borderBottom:"1px solid rgba(255,255,255,0.08)"},
-  td:{padding:"10px",borderBottom:"1px solid rgba(255,255,255,0.05)",color:"#e2e8f0",fontSize:13},
+const C = {
+  card: { background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 16, padding: 16, margin: "12px 12px 0" },
+  h3: { color: "#e2e8f0", fontSize: 15, fontWeight: 700, marginBottom: 12 },
+  inp: { width: "100%", background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 10, padding: "10px 14px", color: "white", fontSize: 14, outline: "none" },
+  btnP: { background: "linear-gradient(135deg,#4f46e5,#7c3aed)", border: "none", borderRadius: 10, padding: "10px 18px", color: "white", fontWeight: 700, cursor: "pointer", fontSize: 14 },
+  btnS: { background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 10, padding: "10px 14px", color: "#e2e8f0", fontWeight: 600, cursor: "pointer", fontSize: 13 },
+  btnD: { background: "rgba(239,68,68,0.15)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 10, padding: "8px 12px", color: "#f87171", cursor: "pointer", fontSize: 12 },
+  btnX: { background: "rgba(239,68,68,0.2)", border: "1px solid rgba(239,68,68,0.5)", borderRadius: 10, padding: "10px 14px", color: "#f87171", fontWeight: 700, cursor: "pointer" },
+  th: { padding: "8px 10px", background: "rgba(255,255,255,0.06)", color: "#94a3b8", fontSize: 12, fontWeight: 600, textAlign: "left", borderBottom: "1px solid rgba(255,255,255,0.08)" },
+  td: { padding: "10px", borderBottom: "1px solid rgba(255,255,255,0.05)", color: "#e2e8f0", fontSize: 13 }
 };
 
-function QR({text,size}){
-  const ref=useRef(null);
-  useEffect(()=>{
-    if(!ref.current||!text)return;
-    ref.current.innerHTML="";
-    try{new QRCode(ref.current,{text,width:size||120,height:size||120,colorDark:"#000",colorLight:"#fff",correctLevel:QRCode.CorrectLevel.M});}catch(e){}
-  },[text,size]);
-  return React.createElement("div",{ref,style:{background:"white",padding:4,borderRadius:4,display:"inline-block"}});
+function QR({ text, size }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!ref.current || !text) return;
+    ref.current.innerHTML = "";
+    try {new QRCode(ref.current, { text, width: size || 120, height: size || 120, colorDark: "#000", colorLight: "#fff", correctLevel: QRCode.CorrectLevel.M });} catch (e) {}
+  }, [text, size]);
+  return React.createElement("div", { ref, style: { background: "white", padding: 4, borderRadius: 4, display: "inline-block" } });
 }
 
-function QRModal({sim,bot,chat,onClose}){
-  const url=makeURL(sim.serial,sim.trackingNo,bot,chat,sim.phone||"");
-  const ft=sim.simType==="free"?" (ฟรีเน็ตเดือนแรก)":"";
-  return(
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={onClose}>
-      <div style={{background:"white",borderRadius:16,padding:20,maxWidth:300,width:"100%",textAlign:"center",color:"#000"}} onClick={e=>e.stopPropagation()}>
-        <QR text={url} size={180}/>
-        {sim.phone
-          ?<div style={{fontWeight:700,marginTop:8,fontSize:13}}>📞 {sim.phone}</div>
-          :<div style={{color:"#d97706",marginTop:8,fontSize:12}}>📞 รับเบอร์โทรหลังลงทะเบียนซิม</div>}
-        <div style={{fontWeight:700,marginTop:4,fontSize:13}}>ซิมหมายเลข: {sim.trackingNo}{ft}</div>
-        <div style={{fontSize:10,marginTop:4,color:"#444",lineHeight:1.5}}>สแกน QR Code เพื่อรับบาร์โค้ดซิมและลงทะเบียนซิมที่นี่</div>
-        <div style={{fontSize:10,fontWeight:800,marginTop:3}}>⚠️ ต้องสแกนลงทะเบียนผ่าน QR Code นี้เท่านั้น</div>
-        <div style={{fontSize:9,fontWeight:700,marginTop:5,borderTop:"1px solid #ddd",paddingTop:5,lineHeight:1.6}}>
-          ⚠️ สำคัญมาก !!! ห้ามลงทะเบียนซิมหลังเวลา 17:00 น.<br/>
-          เพราะจะทำให้ซิมใช้งานไม่ได้<br/>
-          ถ้าเกิน 17:00 น. ต้องรอลงทะเบียนวันถัดไป<br/>
-          ทางร้านหยุดให้บริการทุกวันอาทิตย์และวันหยุดนักขัตฤกษ์
-        </div>
-        <a href={url} target="_blank" rel="noopener noreferrer" style={{display:"block",marginTop:10,padding:"8px 16px",background:"#4f46e5",color:"white",borderRadius:8,textDecoration:"none",fontWeight:700,fontSize:13}}>🔗 ทดสอบ QR</a>
-        <button onClick={onClose} style={{...C.btnS,width:"100%",marginTop:8,color:"#000"}}>ปิด</button>
-      </div>
-    </div>
-  );
+function QRModal({ sim, bot, chat, onClose }) {
+  const url = makeURL(sim.serial, sim.trackingNo, bot, chat, sim.phone || "");
+  const ft = sim.simType === "free" ? " (ฟรีเน็ตเดือนแรก)" : "";
+  return (/*#__PURE__*/
+    React.createElement("div", { style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }, onClick: onClose }, /*#__PURE__*/
+    React.createElement("div", { style: { background: "white", borderRadius: 16, padding: 20, maxWidth: 300, width: "100%", textAlign: "center", color: "#000" }, onClick: (e) => e.stopPropagation() }, /*#__PURE__*/
+    React.createElement(QR, { text: url, size: 180 }),
+    sim.phone ? /*#__PURE__*/
+    React.createElement("div", { style: { fontWeight: 700, marginTop: 8, fontSize: 13 } }, "📞 ", sim.phone) : /*#__PURE__*/
+    React.createElement("div", { style: { color: "#d97706", marginTop: 8, fontSize: 12 } }, "📞 รับเบอร์โทรหลังลงทะเบียนซิม"), /*#__PURE__*/
+    React.createElement("div", { style: { fontWeight: 700, marginTop: 4, fontSize: 13 } }, "ซิมหมายเลข: ", sim.trackingNo, ft), /*#__PURE__*/
+    React.createElement("div", { style: { fontSize: 10, marginTop: 4, color: "#444", lineHeight: 1.5 } }, "สแกน QR Code เพื่อรับบาร์โค้ดซิมและลงทะเบียนซิมที่นี่"), /*#__PURE__*/
+    React.createElement("div", { style: { fontSize: 10, fontWeight: 800, marginTop: 3 } }, "⚠️ ต้องสแกนลงทะเบียนผ่าน QR Code นี้เท่านั้น"), /*#__PURE__*/
+    React.createElement("div", { style: { fontSize: 9, fontWeight: 700, marginTop: 5, borderTop: "1px solid #ddd", paddingTop: 5, lineHeight: 1.6 } }, "⚠️ สำคัญมาก !!! ห้ามลงทะเบียนซิมหลังเวลา 17:00 น.", /*#__PURE__*/
+    React.createElement("br", null), "เพราะจะทำให้ซิมใช้งานไม่ได้", /*#__PURE__*/
+    React.createElement("br", null), "ถ้าเกิน 17:00 น. ต้องรอลงทะเบียนวันถัดไป", /*#__PURE__*/
+    React.createElement("br", null), "ทางร้านหยุดให้บริการทุกวันอาทิตย์และวันหยุดนักขัตฤกษ์"
+
+    ), /*#__PURE__*/
+    React.createElement("a", { href: url, target: "_blank", rel: "noopener noreferrer", style: { display: "block", marginTop: 10, padding: "8px 16px", background: "#4f46e5", color: "white", borderRadius: 8, textDecoration: "none", fontWeight: 700, fontSize: 13 } }, "🔗 ทดสอบ QR"), /*#__PURE__*/
+    React.createElement("button", { onClick: onClose, style: { ...C.btnS, width: "100%", marginTop: 8, color: "#000" } }, "ปิด")
+    )
+    ));
+
 }
 
-function Scanner({onScan,sims}){
-  const [serial,setSerial]=useState("");
-  const [phone,setPhone]=useState("");
-  const [code,setCode]=useState("K");
-  const [camS,setCamS]=useState(false);
-  const [camP,setCamP]=useState(false);
-  const [msgS,setMsgS]=useState("");
-  const [msgP,setMsgP]=useState("");
-  const [prev,setPrev]=useState("");
-  const [rsv,setRsv]=useState("");
-  const svRef=useRef(null),pvRef=useRef(null),pcRef=useRef(null);
-  const srRef=useRef(null),ocrRef=useRef(null),cool=useRef(false);
+function Scanner({ onScan, sims }) {
+  const [serial, setSerial] = useState("");
+  const [phone, setPhone] = useState("");
+  const [code, setCode] = useState("K");
+  const [camS, setCamS] = useState(false);
+  const [camP, setCamP] = useState(false);
+  const [msgS, setMsgS] = useState("");
+  const [msgP, setMsgP] = useState("");
+  const [prev, setPrev] = useState("");
+  const [rsv, setRsv] = useState("");
+  const svRef = useRef(null),pvRef = useRef(null),pcRef = useRef(null);
+  const srRef = useRef(null),ocrRef = useRef(null),cool = useRef(false);
 
-  const calcP=useCallback((val)=>{
-    if(!val.trim()){setPrev("");setRsv("");return;}
-    const ex=sims.find(s=>s.serial===val.trim());
-    if(ex){setPrev("⚠️ มีอยู่แล้ว: "+ex.trackingNo);setRsv("");return;}
-    const n=genNo(new Set(sims.map(s=>s.trackingNo)));
-    setRsv(n);setPrev("เลขติดตามซิม: "+(code?code+n:n));
-  },[sims,code]);
+  const calcP = useCallback((val) => {
+    if (!val.trim()) {setPrev("");setRsv("");return;}
+    const ex = sims.find((s) => s.serial === val.trim());
+    if (ex) {setPrev("⚠️ มีอยู่แล้ว: " + ex.trackingNo);setRsv("");return;}
+    const n = genNo(new Set(sims.map((s) => s.trackingNo)));
+    setRsv(n);setPrev("เลขติดตามซิม: " + (code ? code + n : n));
+  }, [sims, code]);
 
-  useEffect(()=>{
-    if(!camS){
-      if(srRef.current){try{srRef.current.reset();}catch(e){}srRef.current=null;}
+  useEffect(() => {
+    if (!camS) {
+      if (srRef.current) {try {srRef.current.reset();} catch (e) {}srRef.current = null;}
       setMsgS("");return;
     }
     setCamP(false);
-    const start=()=>{
-      if(!window.ZXing||!svRef.current)return;
-      const h=new Map();
-      h.set(window.ZXing.DecodeHintType.POSSIBLE_FORMATS,[window.ZXing.BarcodeFormat.CODE_128,window.ZXing.BarcodeFormat.CODE_39,window.ZXing.BarcodeFormat.EAN_13]);
-      h.set(window.ZXing.DecodeHintType.TRY_HARDER,true);
-      const r=new window.ZXing.BrowserMultiFormatReader(h);
-      srRef.current=r;setMsgS("🔍 ชี้กล้องที่บาร์โค้ดซีเรียล...");
-      r.decodeFromVideoDevice(null,svRef.current,res=>{
-        if(res&&!cool.current&&res.getText().length>=10){
-          cool.current=true;
-          const t=res.getText().trim();
+    const start = () => {
+      if (!window.ZXing || !svRef.current) return;
+      const h = new Map();
+      h.set(window.ZXing.DecodeHintType.POSSIBLE_FORMATS, [window.ZXing.BarcodeFormat.CODE_128, window.ZXing.BarcodeFormat.CODE_39, window.ZXing.BarcodeFormat.EAN_13]);
+      h.set(window.ZXing.DecodeHintType.TRY_HARDER, true);
+      const r = new window.ZXing.BrowserMultiFormatReader(h);
+      srRef.current = r;setMsgS("🔍 ชี้กล้องที่บาร์โค้ดซีเรียล...");
+      r.decodeFromVideoDevice(null, svRef.current, (res) => {
+        if (res && !cool.current && res.getText().length >= 10) {
+          cool.current = true;
+          const t = res.getText().trim();
           setSerial(t);calcP(t);
-          setMsgS("✅ ได้ซีเรียล: "+t.slice(0,14)+"...");
+          setMsgS("✅ ได้ซีเรียล: " + t.slice(0, 14) + "...");
           setCamS(false);
-          setTimeout(()=>{cool.current=false;},1500);
+          setTimeout(() => {cool.current = false;}, 1500);
         }
       });
     };
-    navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}})
-      .then(st=>{if(svRef.current){svRef.current.srcObject=st;svRef.current.play();}if(window.ZXing)start();else{const sc=document.createElement("script");sc.src="https://unpkg.com/@zxing/library@latest/umd/index.min.js";sc.onload=start;document.head.appendChild(sc);}})
-      .catch(e=>setMsgS("❌ "+e.message));
-    return()=>{if(srRef.current){try{srRef.current.reset();}catch(e){}srRef.current=null;}};
-  },[camS]);
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } }).
+    then((st) => {if (svRef.current) {svRef.current.srcObject = st;svRef.current.play();}if (window.ZXing) start();else {const sc = document.createElement("script");sc.src = "https://unpkg.com/@zxing/library@latest/umd/index.min.js";sc.onload = start;document.head.appendChild(sc);}}).
+    catch((e) => setMsgS("❌ " + e.message));
+    return () => {if (srRef.current) {try {srRef.current.reset();} catch (e) {}srRef.current = null;}};
+  }, [camS]);
 
-  useEffect(()=>{
-    if(!camP){if(ocrRef.current){clearInterval(ocrRef.current);ocrRef.current=null;}setMsgP("");return;}
+  useEffect(() => {
+    if (!camP) {if (ocrRef.current) {clearInterval(ocrRef.current);ocrRef.current = null;}setMsgP("");return;}
     setCamS(false);
-    const runOCR=()=>{
-      if(!pvRef.current||!pcRef.current)return;
-      const v=pvRef.current,cv=pcRef.current;
-      cv.width=v.videoWidth;cv.height=v.videoHeight;
-      cv.getContext("2d").drawImage(v,0,0);
-      if(!window.Tesseract)return;
-      window.Tesseract.recognize(cv,"eng",{tessedit_char_whitelist:"0123456789"}).then(({data:{text}})=>{
-        const m=text.replace(/\D/g,"").match(/0[689]\d{8}/);
-        if(m){setPhone(m[0]);setMsgP("✅ เบอร์: "+m[0]);clearInterval(ocrRef.current);ocrRef.current=null;setCamP(false);}
-      }).catch(()=>{});
+    const runOCR = () => {
+      if (!pvRef.current || !pcRef.current) return;
+      const v = pvRef.current,cv = pcRef.current;
+      cv.width = v.videoWidth;cv.height = v.videoHeight;
+      cv.getContext("2d").drawImage(v, 0, 0);
+      if (!window.Tesseract) return;
+      window.Tesseract.recognize(cv, "eng", { tessedit_char_whitelist: "0123456789" }).then(({ data: { text } }) => {
+        const m = text.replace(/\D/g, "").match(/0[689]\d{8}/);
+        if (m) {setPhone(m[0]);setMsgP("✅ เบอร์: " + m[0]);clearInterval(ocrRef.current);ocrRef.current = null;setCamP(false);}
+      }).catch(() => {});
     };
-    navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}})
-      .then(st=>{
-        if(pvRef.current){pvRef.current.srcObject=st;pvRef.current.play();}
-        setMsgP("🔍 ชี้กล้องที่เบอร์โทร...");
-        const lt=cb=>{if(window.Tesseract){cb();return;}const sc=document.createElement("script");sc.src="https://unpkg.com/tesseract.js@4/dist/tesseract.min.js";sc.onload=cb;document.head.appendChild(sc);};
-        lt(()=>{ocrRef.current=setInterval(runOCR,1500);});
-      }).catch(e=>setMsgP("❌ "+e.message));
-    return()=>{if(ocrRef.current){clearInterval(ocrRef.current);ocrRef.current=null;}};
-  },[camP]);
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } }).
+    then((st) => {
+      if (pvRef.current) {pvRef.current.srcObject = st;pvRef.current.play();}
+      setMsgP("🔍 ชี้กล้องที่เบอร์โทร...");
+      const lt = (cb) => {if (window.Tesseract) {cb();return;}const sc = document.createElement("script");sc.src = "https://unpkg.com/tesseract.js@4/dist/tesseract.min.js";sc.onload = cb;document.head.appendChild(sc);};
+      lt(() => {ocrRef.current = setInterval(runOCR, 1500);});
+    }).catch((e) => setMsgP("❌ " + e.message));
+    return () => {if (ocrRef.current) {clearInterval(ocrRef.current);ocrRef.current = null;}};
+  }, [camP]);
 
-  const go=()=>{
-    if(!serial.trim())return;
-    onScan(serial.trim(),rsv||null,phone.trim()||null,code||null);
+  const go = () => {
+    if (!serial.trim()) return;
+    onScan(serial.trim(), rsv || null, phone.trim() || null, code || null);
     setSerial("");setPhone("");setPrev("");setRsv("");
   };
 
-  return(
-    <div style={C.card}>
-      <h3 style={C.h3}>📷 ยิงเลขซีเรียลซิม</h3>
-      <div style={{marginBottom:14}}>
-        <span style={{color:"#94a3b8",fontSize:13,fontWeight:600,display:"block",marginBottom:8}}>เครือข่าย:</span>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-          {[
-            {code:"K", label:"True",   emoji:"📶", grad:"linear-gradient(135deg,#e53e3e,#c53030)"},
-            {code:"L", label:"True",   emoji:"📶", grad:"linear-gradient(135deg,#4f46e5,#7c3aed)"},
-            {code:"A", label:"AIS",    emoji:"📡", grad:"linear-gradient(135deg,#d97706,#f59e0b)"},
-            {code:"D", label:"DTAC",   emoji:"📱", grad:"linear-gradient(135deg,#0891b2,#06b6d4)"},
-          ].map(n=>(
-            <button key={n.code} onClick={()=>setCode(n.code)}
-              style={{padding:"10px 8px",border:"2px solid",borderRadius:12,cursor:"pointer",fontFamily:"inherit",fontWeight:800,fontSize:13,textAlign:"center",transition:"all 0.15s",
-                background:code===n.code?n.grad:"rgba(255,255,255,0.04)",
-                borderColor:code===n.code?"transparent":"rgba(255,255,255,0.1)",
-                color:code===n.code?"white":"#8b8fa8"}}>
-              {n.emoji} {n.label} <span style={{opacity:0.75,fontSize:11}}>({n.code})</span>
-            </button>
-          ))}
-        </div>
-      </div>
+  return (/*#__PURE__*/
+    React.createElement("div", { style: C.card }, /*#__PURE__*/
+    React.createElement("h3", { style: C.h3 }, "📷 ยิงเลขซีเรียลซิม"), /*#__PURE__*/
+    React.createElement("div", { style: { display: "flex", gap: 8, alignItems: "center", marginBottom: 14 } }, /*#__PURE__*/
+    React.createElement("span", { style: { color: "#94a3b8", fontSize: 13, fontWeight: 600 } }, "โค้ดซิม:"),
+    ["K", "L"].map((k) => /*#__PURE__*/
+    React.createElement("button", { key: k, onClick: () => setCode(k),
+      style: { padding: "8px 24px", border: "none", borderRadius: 10, cursor: "pointer", fontFamily: "inherit", fontWeight: 700, fontSize: 15,
+        background: code === k ? k === "K" ? "linear-gradient(135deg,#4f46e5,#7c3aed)" : "linear-gradient(135deg,#059669,#10b981)" : "rgba(255,255,255,0.06)",
+        color: code === k ? "white" : "#8b8fa8" } }, k)
+    )
+    ), /*#__PURE__*/
 
-      <div style={{background:"rgba(16,185,129,0.06)",border:"1px solid rgba(16,185,129,0.2)",borderRadius:12,padding:"12px 14px",marginBottom:10}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-          <span style={{color:"#6ee7b7",fontSize:13,fontWeight:700}}>📞 เบอร์โทร</span>
-          <button onClick={()=>setCamP(v=>!v)} style={{...camP?C.btnX:C.btnS,fontSize:12,padding:"6px 14px"}}>{camP?"🔴 ปิด":"📷 สแกนเบอร์"}</button>
-        </div>
-        {camP&&<div style={{marginBottom:8}}>
-          <video ref={pvRef} style={{width:"100%",borderRadius:10,border:"2px solid #10b981",display:"block"}} playsInline muted/>
-          <canvas ref={pcRef} style={{display:"none"}}/>
-          <div style={{marginTop:6,padding:"6px 12px",borderRadius:8,fontSize:12,textAlign:"center",background:"rgba(16,185,129,0.1)",color:"#6ee7b7"}}>{msgP||"กำลังเตรียม..."}</div>
-        </div>}
-        <div style={{display:"flex",gap:8}}>
-          <input style={{...C.inp,flex:1}} value={phone} onChange={e=>setPhone(e.target.value.replace(/[^0-9]/g,""))} placeholder="OCR อัตโนมัติ หรือกรอกเอง" maxLength={10} inputMode="numeric"/>
-          {phone&&<button onClick={()=>setPhone("")} style={{...C.btnD,padding:"8px 10px"}}>✕</button>}
-        </div>
-        {phone&&<div style={{color:"#6ee7b7",fontSize:12,marginTop:4}}>✅ {phone}</div>}
-        {!phone&&serial&&<div style={{color:"#f59e0b",fontSize:11,marginTop:4}}>📞 รับเบอร์โทรหลังลงทะเบียนซิม</div>}
-      </div>
+    React.createElement("div", { style: { background: "rgba(16,185,129,0.06)", border: "1px solid rgba(16,185,129,0.2)", borderRadius: 12, padding: "12px 14px", marginBottom: 10 } }, /*#__PURE__*/
+    React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 } }, /*#__PURE__*/
+    React.createElement("span", { style: { color: "#6ee7b7", fontSize: 13, fontWeight: 700 } }, "📞 เบอร์โทร"), /*#__PURE__*/
+    React.createElement("button", { onClick: () => setCamP((v) => !v), style: { ...(camP ? C.btnX : C.btnS), fontSize: 12, padding: "6px 14px" } }, camP ? "🔴 ปิด" : "📷 สแกนเบอร์")
+    ),
+    camP && /*#__PURE__*/React.createElement("div", { style: { marginBottom: 8 } }, /*#__PURE__*/
+    React.createElement("video", { ref: pvRef, style: { width: "100%", borderRadius: 10, border: "2px solid #10b981", display: "block" }, playsInline: true, muted: true }), /*#__PURE__*/
+    React.createElement("canvas", { ref: pcRef, style: { display: "none" } }), /*#__PURE__*/
+    React.createElement("div", { style: { marginTop: 6, padding: "6px 12px", borderRadius: 8, fontSize: 12, textAlign: "center", background: "rgba(16,185,129,0.1)", color: "#6ee7b7" } }, msgP || "กำลังเตรียม...")
+    ), /*#__PURE__*/
+    React.createElement("div", { style: { display: "flex", gap: 8 } }, /*#__PURE__*/
+    React.createElement("input", { style: { ...C.inp, flex: 1 }, value: phone, onChange: (e) => setPhone(e.target.value.replace(/[^0-9]/g, "")), placeholder: "OCR อัตโนมัติ หรือกรอกเอง", maxLength: 10, inputMode: "numeric" }),
+    phone && /*#__PURE__*/React.createElement("button", { onClick: () => setPhone(""), style: { ...C.btnD, padding: "8px 10px" } }, "✕")
+    ),
+    phone && /*#__PURE__*/React.createElement("div", { style: { color: "#6ee7b7", fontSize: 12, marginTop: 4 } }, "✅ ", phone),
+    !phone && serial && /*#__PURE__*/React.createElement("div", { style: { color: "#f59e0b", fontSize: 11, marginTop: 4 } }, "📞 รับเบอร์โทรหลังลงทะเบียนซิม")
+    ), /*#__PURE__*/
 
-      <div style={{background:"rgba(79,70,229,0.06)",border:"1px solid rgba(79,70,229,0.2)",borderRadius:12,padding:"12px 14px",marginBottom:10}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-          <span style={{color:"#a5b4fc",fontSize:13,fontWeight:700}}>📋 เลขซีเรียลซิม</span>
-          <button onClick={()=>setCamS(v=>!v)} style={{...camS?C.btnX:C.btnS,fontSize:12,padding:"6px 14px"}}>{camS?"🔴 ปิด":"📷 สแกนซีเรียล"}</button>
-        </div>
-        {camS&&<div style={{marginBottom:8}}>
-          <div style={{position:"relative"}}>
-            <video ref={svRef} style={{width:"100%",borderRadius:10,border:"2px solid #4f46e5",display:"block"}} playsInline muted/>
-            <div style={{position:"absolute",top:"50%",left:"8%",right:"8%",height:2,background:"rgba(99,102,241,0.8)",transform:"translateY(-50%)"}}/>
-          </div>
-          <div style={{marginTop:6,padding:"6px 12px",borderRadius:8,fontSize:12,textAlign:"center",background:"rgba(79,70,229,0.1)",color:"#a5b4fc"}}>{msgS||"กำลังเตรียม..."}</div>
-        </div>}
-        <div style={{display:"flex",gap:8}}>
-          <input style={{...C.inp,flex:1}} value={serial} onChange={e=>{setSerial(e.target.value);calcP(e.target.value);}} placeholder="สแกนหรือกรอกเลขซีเรียล" onKeyDown={e=>e.key==="Enter"&&go()}/>
-          <button style={{...C.btnP,opacity:serial.trim()?1:0.4}} onClick={go} disabled={!serial.trim()}>เพิ่ม ➕</button>
-        </div>
-      </div>
+    React.createElement("div", { style: { background: "rgba(79,70,229,0.06)", border: "1px solid rgba(79,70,229,0.2)", borderRadius: 12, padding: "12px 14px", marginBottom: 10 } }, /*#__PURE__*/
+    React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 } }, /*#__PURE__*/
+    React.createElement("span", { style: { color: "#a5b4fc", fontSize: 13, fontWeight: 700 } }, "📋 เลขซีเรียลซิม"), /*#__PURE__*/
+    React.createElement("button", { onClick: () => setCamS((v) => !v), style: { ...(camS ? C.btnX : C.btnS), fontSize: 12, padding: "6px 14px" } }, camS ? "🔴 ปิด" : "📷 สแกนซีเรียล")
+    ),
+    camS && /*#__PURE__*/React.createElement("div", { style: { marginBottom: 8 } }, /*#__PURE__*/
+    React.createElement("div", { style: { position: "relative" } }, /*#__PURE__*/
+    React.createElement("video", { ref: svRef, style: { width: "100%", borderRadius: 10, border: "2px solid #4f46e5", display: "block" }, playsInline: true, muted: true }), /*#__PURE__*/
+    React.createElement("div", { style: { position: "absolute", top: "50%", left: "8%", right: "8%", height: 2, background: "rgba(99,102,241,0.8)", transform: "translateY(-50%)" } })
+    ), /*#__PURE__*/
+    React.createElement("div", { style: { marginTop: 6, padding: "6px 12px", borderRadius: 8, fontSize: 12, textAlign: "center", background: "rgba(79,70,229,0.1)", color: "#a5b4fc" } }, msgS || "กำลังเตรียม...")
+    ), /*#__PURE__*/
+    React.createElement("div", { style: { display: "flex", gap: 8 } }, /*#__PURE__*/
+    React.createElement("input", { style: { ...C.inp, flex: 1 }, value: serial, onChange: (e) => {setSerial(e.target.value);calcP(e.target.value);}, placeholder: "สแกนหรือกรอกเลขซีเรียล", onKeyDown: (e) => e.key === "Enter" && go() }), /*#__PURE__*/
+    React.createElement("button", { style: { ...C.btnP, opacity: serial.trim() ? 1 : 0.4 }, onClick: go, disabled: !serial.trim() }, "เพิ่ม ➕")
+    )
+    ),
 
-      {prev&&<div style={{padding:"10px 16px",background:prev.startsWith("⚠️")?"rgba(245,158,11,0.12)":"rgba(79,70,229,0.15)",border:"1px solid rgba(167,139,250,0.5)",borderRadius:12,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-        <span style={{color:"#94a3b8",fontSize:12}}>{prev.startsWith("⚠️")?"⚠️ ซีเรียลซ้ำ":"เลขติดตาม ("+code+"):"}</span>
-        <span style={{color:"#a78bfa",fontSize:24,fontWeight:800}}>{prev.startsWith("⚠️")?prev.replace("⚠️ มีอยู่แล้ว: ",""):prev.replace("เลขติดตามซิม: ","")}</span>
-      </div>}
+    prev && /*#__PURE__*/React.createElement("div", { style: { padding: "10px 16px", background: prev.startsWith("⚠️") ? "rgba(245,158,11,0.12)" : "rgba(79,70,229,0.15)", border: "1px solid rgba(167,139,250,0.5)", borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "space-between" } }, /*#__PURE__*/
+    React.createElement("span", { style: { color: "#94a3b8", fontSize: 12 } }, prev.startsWith("⚠️") ? "⚠️ ซีเรียลซ้ำ" : "เลขติดตาม (" + code + "):"), /*#__PURE__*/
+    React.createElement("span", { style: { color: "#a78bfa", fontSize: 24, fontWeight: 800 } }, prev.startsWith("⚠️") ? prev.replace("⚠️ มีอยู่แล้ว: ", "") : prev.replace("เลขติดตามซิม: ", ""))
+    ),
 
-      {sims.length>0&&<div style={{...C.card,margin:"12px 0 0",padding:12}}>
-        <div style={{color:"#8b8fa8",fontSize:12,fontWeight:600,marginBottom:8}}>🕐 เพิ่มล่าสุด</div>
-        {sims.slice(0,5).map(s=><div key={s.serial} style={{padding:"6px 0",borderBottom:"1px solid rgba(255,255,255,0.05)"}}>
-          <div style={{color:"white",fontFamily:"monospace",fontSize:12}}>{s.serial}</div>
-          <div style={{color:"#a78bfa",fontSize:11}}>เลขติดตาม: {s.trackingNo}</div>
-        </div>)}
-      </div>}
-    </div>
-  );
+    sims.length > 0 && /*#__PURE__*/React.createElement("div", { style: { ...C.card, margin: "12px 0 0", padding: 12 } }, /*#__PURE__*/
+    React.createElement("div", { style: { color: "#8b8fa8", fontSize: 12, fontWeight: 600, marginBottom: 8 } }, "🕐 เพิ่มล่าสุด"),
+    sims.slice(0, 5).map((s) => /*#__PURE__*/React.createElement("div", { key: s.serial, style: { padding: "6px 0", borderBottom: "1px solid rgba(255,255,255,0.05)" } }, /*#__PURE__*/
+    React.createElement("div", { style: { color: "white", fontFamily: "monospace", fontSize: 12 } }, s.serial), /*#__PURE__*/
+    React.createElement("div", { style: { color: "#a78bfa", fontSize: 11 } }, "เลขติดตาม: ", s.trackingNo)
+    ))
+    )
+    ));
+
 }
-function QRMain({sims,bot,chat,onMarkPrinted,onUnmarkPrinted,onDeleteSim,onPreview}){
-  const [sub,setSub]=useState("new");
-  const [sel,setSel]=useState([]);
-  const [q,setQ]=useState("");
-  const [printing,setPrinting]=useState(false);
-  const notP=sims.filter(s=>!s.printed),done=sims.filter(s=>s.printed);
-  const cur=sub==="new"?notP:done;
-  const fl=cur.filter(s=>s.serial.toLowerCase().includes(q.toLowerCase())||s.trackingNo.includes(q));
-  const tog=s=>setSel(p=>p.includes(s)?p.filter(x=>x!==s):[...p,s]);
+function QRMain({ sims, bot, chat, onMarkPrinted, onUnmarkPrinted, onDeleteSim, onPreview }) {
+  const [sub, setSub] = useState("new");
+  const [sel, setSel] = useState([]);
+  const [q, setQ] = useState("");
+  const [printing, setPrinting] = useState(false);
+  const notP = sims.filter((s) => !s.printed),done = sims.filter((s) => s.printed);
+  const cur = sub === "new" ? notP : done;
+  const fl = cur.filter((s) => s.serial.toLowerCase().includes(q.toLowerCase()) || s.trackingNo.includes(q));
+  const tog = (s) => setSel((p) => p.includes(s) ? p.filter((x) => x !== s) : [...p, s]);
 
-  const moveToDone=()=>{
-    if(!sel.length)return;
-    const mv=[...sel];setSel([]);
-    setTimeout(()=>{onMarkPrinted(mv);setTimeout(()=>setSub("done"),400);},50);
+  const moveToDone = () => {
+    if (!sel.length) return;
+    const mv = [...sel];setSel([]);
+    setTimeout(() => {onMarkPrinted(mv);setTimeout(() => setSub("done"), 400);}, 50);
   };
 
-  const doPrint=async()=>{
-    const tp=sims.filter(s=>sel.includes(s.serial));
-    if(!tp.length)return;
+  const doPrint = async () => {
+    const tp = sims.filter((s) => sel.includes(s.serial));
+    if (!tp.length) return;
     setPrinting(true);
-    const qm={};
-    for(const s of tp){
-      const url=makeURL(s.serial,s.trackingNo,bot,chat,s.phone||"");
-      await new Promise(res=>{
-        const d=document.createElement("div");
-        d.style.cssText="position:absolute;left:-9999px;top:-9999px";
+    const qm = {};
+    for (const s of tp) {
+      const url = makeURL(s.serial, s.trackingNo, bot, chat, s.phone || "");
+      await new Promise((res) => {
+        const d = document.createElement("div");
+        d.style.cssText = "position:absolute;left:-9999px;top:-9999px";
         document.body.appendChild(d);
-        try{
-          new QRCode(d,{text:url,width:200,height:200,colorDark:"#000",colorLight:"#fff",correctLevel:QRCode.CorrectLevel.M});
-          setTimeout(()=>{
-            const cv=d.querySelector("canvas");
-            if(cv)qm[s.serial]=cv.toDataURL();
-            try{document.body.removeChild(d);}catch(e){}
+        try {
+          new QRCode(d, { text: url, width: 200, height: 200, colorDark: "#000", colorLight: "#fff", correctLevel: QRCode.CorrectLevel.M });
+          setTimeout(() => {
+            const cv = d.querySelector("canvas");
+            if (cv) qm[s.serial] = cv.toDataURL();
+            try {document.body.removeChild(d);} catch (e) {}
             res();
-          },400);
-        }catch(e){try{document.body.removeChild(d);}catch(e2){}res();}
+          }, 400);
+        } catch (e) {try {document.body.removeChild(d);} catch (e2) {}res();}
       });
     }
-    const PR=JSON.parse(lsG("sim_print_prefs")||'{"w":100,"h":75,"q":40,"f":8}');
-    const cards=tp.map(s=>{
-      const ft=s.simType==="free"?" (ฟรีเน็ตเดือนแรก)":"";
-      const ph=s.phone?'<div class="ph">📞 '+s.phone+'</div>':'<div class="pw">📞 รับเบอร์โทรหลังลงทะเบียนซิม</div>';
-      const img=qm[s.serial]?'<img src="'+qm[s.serial]+'" width="200" height="200" style="width:'+PR.q+'mm;height:'+PR.q+'mm"/>':"";"";
-      return '<div class="card">'+img+ph+'<div class="trk">ซิมหมายเลข: '+s.trackingNo+ft+'</div><div class="lbl">สแกน QR Code เพื่อรับบาร์โค้ดซิมและลงทะเบียนซิมที่นี่</div><div class="must">⚠️ ต้องสแกนลงทะเบียนผ่าน QR Code นี้เท่านั้น</div><div class="warn">⚠️ สำคัญมาก !!! ห้ามลงทะเบียนซิมหลังเวลา 17:00 น. เพราะจะทำให้ซิมใช้งานไม่ได้ ถ้าเกิน 17:00 น. ต้องรอลงทะเบียนวันถัดไป ทางร้านหยุดให้บริการทุกวันอาทิตย์และวันหยุดนักขัตฤกษ์</div></div>';
+    const PR = JSON.parse(lsG("sim_print_prefs") || '{"w":100,"h":75,"q":40,"f":8}');
+    const cards = tp.map((s) => {
+      const ft = s.simType === "free" ? " (ฟรีเน็ตเดือนแรก)" : "";
+      const ph = s.phone ? '<div class="ph">📞 ' + s.phone + '</div>' : '<div class="pw">📞 รับเบอร์โทรหลังลงทะเบียนซิม</div>';
+      const img = qm[s.serial] ? '<img src="' + qm[s.serial] + '" width="200" height="200" style="width:' + PR.q + 'mm;height:' + PR.q + 'mm"/>' : "";return '<div class="card">' + img + ph + '<div class="trk">ซิมหมายเลข: ' + s.trackingNo + ft + '</div><div class="lbl">สแกน QR Code เพื่อรับบาร์โค้ดซิมและลงทะเบียนซิมที่นี่</div><div class="must">⚠️ ต้องสแกนลงทะเบียนผ่าน QR Code นี้เท่านั้น</div><div class="warn">⚠️ สำคัญมาก !!! ห้ามลงทะเบียนซิมหลังเวลา 17:00 น. เพราะจะทำให้ซิมใช้งานไม่ได้ ถ้าเกิน 17:00 น. ต้องรอลงทะเบียนวันถัดไป ทางร้านหยุดให้บริการทุกวันอาทิตย์และวันหยุดนักขัตฤกษ์</div></div>';
     }).join("");
-    const scr="<scr"+"ipt>var PK='sim_print_prefs';function sv(){try{localStorage.setItem(PK,JSON.stringify({w:+I('w').value,h:+I('h').value,q:+I('q').value,f:+I('f').value}));}catch(e){}}function I(id){return document.getElementById(id);}function upd(){var w=+I('w').value||100,h=+I('h').value||75,q=+I('q').value||40,f=+I('f').value||8;document.querySelectorAll('.card').forEach(function(c){c.style.width=w+'mm';c.style.height=h+'mm';});document.querySelectorAll('.card img').forEach(function(i){i.style.width=q+'mm';i.style.height=q+'mm';});document.querySelectorAll('.ph').forEach(function(el){el.style.fontSize=(f+1)+'pt';});document.querySelectorAll('.pw').forEach(function(el){el.style.fontSize=f+'pt';});document.querySelectorAll('.trk').forEach(function(el){el.style.fontSize=(f+2)+'pt';});document.querySelectorAll('.lbl').forEach(function(el){el.style.fontSize=(f-1)+'pt';});document.querySelectorAll('.must').forEach(function(el){el.style.fontSize=f+'pt';});document.querySelectorAll('.warn').forEach(function(el){el.style.fontSize=(f-1.5)+'pt';});var ps=document.getElementById('ps');if(!ps){ps=document.createElement('style');ps.id='ps';document.head.appendChild(ps);}ps.textContent='@media print{@page{size:'+w+'mm '+h+'mm;margin:0}.card{width:'+w+'mm!important;height:'+h+'mm!important}}';sv();}window.onload=function(){upd();};<\/scr"+"ipt>";
-    const css=".card{border:2px solid #000;border-radius:4mm;padding:3mm;width:"+PR.w+"mm;height:"+PR.h+"mm;text-align:center;page-break-after:always;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden}.ph{font-size:9pt;font-weight:700;color:#000;margin-top:1.5mm}.pw{font-size:8pt;color:#000;margin-top:1.5mm}.trk{font-size:10pt;font-weight:700;color:#000;margin-top:1mm}.lbl{font-size:7pt;color:#000;margin-top:1mm;line-height:1.4}.must{font-size:7.5pt;font-weight:800;color:#000;margin-top:1.5mm}.warn{font-size:6.5pt;font-weight:700;color:#000;margin-top:2mm;line-height:1.5;border-top:0.5px solid #000;padding-top:1.5mm}@media print{.np{display:none!important}@page{size:"+PR.w+"mm "+PR.h+"mm;margin:0}.card{border:2px solid #000!important}}";
-    const ctrl='<div class="np" style="padding:12px;background:#f5f5f5;border-bottom:2px solid #000;display:flex;flex-wrap:wrap;gap:10px;align-items:center"><button onclick="window.print()" style="padding:12px 28px;font-size:16px;background:#000;color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:700">🖨️ พิมพ์</button><button onclick="window.close()" style="padding:12px 20px;font-size:15px;background:#fff;color:#000;border:2px solid #000;border-radius:8px;cursor:pointer;font-weight:700">✕ ปิด</button><label style="font-size:13px">กว้าง:<input id="w" type="number" value="'+PR.w+'" style="width:55px;margin:0 4px;padding:4px;border:1px solid #999;border-radius:4px" oninput="upd()"/></label><label style="font-size:13px">สูง:<input id="h" type="number" value="'+PR.h+'" style="width:55px;margin:0 4px;padding:4px;border:1px solid #999;border-radius:4px" oninput="upd()"/></label><label style="font-size:13px">QR(mm):<input id="q" type="number" value="'+PR.q+'" style="width:50px;margin:0 4px;padding:4px;border:1px solid #999;border-radius:4px" oninput="upd()"/></label><label style="font-size:13px">ตัวอักษร(pt):<input id="f" type="number" value="'+PR.f+'" style="width:50px;margin:0 4px;padding:4px;border:1px solid #999;border-radius:4px" oninput="upd()"/></label></div>';
-    const html='<!DOCTYPE html><html><head><meta charset="utf-8"/><title>QR</title><style>*{box-sizing:border-box}body{font-family:Sarabun,sans-serif;background:#fff;margin:0;padding:0}'+css+'</style></head><body>'+ctrl+'<div>'+cards+'</div>'+scr+'</body></html>';
-    const ps=tp.map(s=>s.serial);
+    const scr = "<scr" + "ipt>var PK='sim_print_prefs';function sv(){try{localStorage.setItem(PK,JSON.stringify({w:+I('w').value,h:+I('h').value,q:+I('q').value,f:+I('f').value}));}catch(e){}}function I(id){return document.getElementById(id);}function upd(){var w=+I('w').value||100,h=+I('h').value||75,q=+I('q').value||40,f=+I('f').value||8;document.querySelectorAll('.card').forEach(function(c){c.style.width=w+'mm';c.style.height=h+'mm';});document.querySelectorAll('.card img').forEach(function(i){i.style.width=q+'mm';i.style.height=q+'mm';});var ps=document.getElementById('ps');if(!ps){ps=document.createElement('style');ps.id='ps';document.head.appendChild(ps);}ps.textContent='@media print{@page{size:'+w+'mm '+h+'mm;margin:0}.card{width:'+w+'mm!important;height:'+h+'mm!important}}';sv();}window.onload=function(){upd();};<\/scr" + "ipt>";
+    const css = ".card{border:2px solid #000;border-radius:4mm;padding:3mm;width:" + PR.w + "mm;height:" + PR.h + "mm;text-align:center;page-break-after:always;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden}.ph{font-size:9pt;font-weight:700;color:#000;margin-top:1.5mm}.pw{font-size:8pt;color:#000;margin-top:1.5mm}.trk{font-size:10pt;font-weight:700;color:#000;margin-top:1mm}.lbl{font-size:7pt;color:#000;margin-top:1mm;line-height:1.4}.must{font-size:7.5pt;font-weight:800;color:#000;margin-top:1.5mm}.warn{font-size:6.5pt;font-weight:700;color:#000;margin-top:2mm;line-height:1.5;border-top:0.5px solid #000;padding-top:1.5mm}@media print{.np{display:none!important}@page{size:" + PR.w + "mm " + PR.h + "mm;margin:0}.card{border:2px solid #000!important}}";
+    const ctrl = '<div class="np" style="padding:12px;background:#f5f5f5;border-bottom:2px solid #000;display:flex;flex-wrap:wrap;gap:10px;align-items:center"><button onclick="window.print()" style="padding:12px 28px;font-size:16px;background:#000;color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:700">🖨️ พิมพ์</button><button onclick="window.close()" style="padding:12px 20px;font-size:15px;background:#fff;color:#000;border:2px solid #000;border-radius:8px;cursor:pointer;font-weight:700">✕ ปิด</button><label style="font-size:13px">กว้าง:<input id="w" type="number" value="' + PR.w + '" style="width:55px;margin:0 4px;padding:4px;border:1px solid #999;border-radius:4px" oninput="upd()"/></label><label style="font-size:13px">สูง:<input id="h" type="number" value="' + PR.h + '" style="width:55px;margin:0 4px;padding:4px;border:1px solid #999;border-radius:4px" oninput="upd()"/></label><label style="font-size:13px">QR(mm):<input id="q" type="number" value="' + PR.q + '" style="width:50px;margin:0 4px;padding:4px;border:1px solid #999;border-radius:4px" oninput="upd()"/></label><label style="font-size:13px">ตัวอักษร(pt):<input id="f" type="number" value="' + PR.f + '" style="width:50px;margin:0 4px;padding:4px;border:1px solid #999;border-radius:4px" oninput="upd()"/></label></div>';
+    const html = '<!DOCTYPE html><html><head><meta charset="utf-8"/><title>QR</title><style>*{box-sizing:border-box}body{font-family:Sarabun,sans-serif;background:#fff;margin:0;padding:0}' + css + '</style></head><body>' + ctrl + '<div>' + cards + '</div>' + scr + '</body></html>';
+    const ps = tp.map((s) => s.serial);
     onMarkPrinted(ps);setSel([]);setPrinting(false);
-    setTimeout(()=>setSub("done"),400);
-    setTimeout(()=>{const w=window.open("","_blank");if(w){w.document.write(html);w.document.close();}},200);
+    setTimeout(() => setSub("done"), 400);
+    setTimeout(() => {const w = window.open("", "_blank");if (w) {w.document.write(html);w.document.close();}}, 200);
   };
 
-  return(
-    <div style={C.card}>
-      <h3 style={{...C.h3,marginBottom:12}}>🔲 QR Code Serial Sim</h3>
-      <div style={{display:"flex",gap:6,marginBottom:14,borderBottom:"1px solid rgba(255,255,255,0.08)",paddingBottom:10}}>
-        {[{id:"new",label:"🖨️ ยังไม่พิมพ์ ("+notP.length+")",color:"#a5b4fc"},{id:"done",label:"✅ พิมพ์แล้ว ("+done.length+")",color:"#6ee7b7"}].map(t=>(
-          <button key={t.id} onClick={()=>{setSub(t.id);setSel([]);}}
-            style={{flex:1,padding:"8px 4px",border:"none",borderRadius:9,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",
-              background:sub===t.id?"rgba(255,255,255,0.12)":"rgba(255,255,255,0.04)",
-              color:sub===t.id?t.color:"#8b8fa8",
-              borderBottom:sub===t.id?"2px solid "+t.color:"2px solid transparent"}}>{t.label}</button>
-        ))}
-      </div>
-      <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap"}}>
-        <input style={{...C.inp,flex:1,minWidth:140}} value={q} onChange={e=>setQ(e.target.value)} placeholder="🔍 ค้นหา..."/>
-        <button style={C.btnS} onClick={()=>setSel(fl.map(s=>s.serial))}>เลือกทั้งหมด</button>
-        <button style={C.btnS} onClick={()=>setSel([])}>ยกเลิก</button>
-      </div>
-      {sel.length>0&&<div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
-        {sub==="new"&&<>
-          <button onClick={doPrint} disabled={printing} style={{...C.btnP,flex:1,opacity:printing?0.6:1}}>{printing?"⏳ กำลังสร้าง...":"🖨️ พิมพ์ QR ("+sel.length+")"}</button>
-          <button onClick={moveToDone} style={{...C.btnS,flex:1,background:"rgba(16,185,129,0.15)",color:"#6ee7b7",border:"1px solid rgba(16,185,129,0.4)",fontWeight:700}}>✅ ย้ายไปพิมพ์แล้ว</button>
-        </>}
-        {sub==="done"&&<button onClick={()=>{sel.forEach(s=>onUnmarkPrinted(s));setSel([]);}} style={{...C.btnS,flex:1,color:"#f59e0b",border:"1px solid rgba(245,158,11,0.4)"}}>↩️ ย้ายกลับ</button>}
-      </div>}
-      {fl.length===0&&<div style={{textAlign:"center",padding:36,color:"#8b8fa8"}}><div style={{fontSize:36,marginBottom:8}}>{sub==="new"?"🎉":"📭"}</div><div>{sub==="new"?"พิมพ์ QR ครบทุกซิมแล้ว":"ยังไม่มีซิมที่พิมพ์แล้ว"}</div></div>}
-      {/* แท็บ ยังไม่พิมพ์ — แสดง QR */}
-      {sub==="new"&&<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(145px,1fr))",gap:10}}>
-        {fl.map(s=>(
-          <div key={s.serial} onClick={()=>tog(s.serial)}
-            style={{background:sel.includes(s.serial)?"rgba(79,70,229,0.2)":"rgba(255,255,255,0.04)",
-              border:"2px solid "+(sel.includes(s.serial)?"#4f46e5":"rgba(255,255,255,0.08)"),
-              borderRadius:12,padding:10,textAlign:"center",cursor:"pointer",position:"relative"}}>
-            {sel.includes(s.serial)&&<div style={{position:"absolute",top:6,right:6,width:18,height:18,background:"#4f46e5",borderRadius:99,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,color:"white",fontWeight:700}}>✓</div>}
-            <div style={{background:"#fff",borderRadius:8,padding:4,display:"inline-block",marginBottom:4}}>
-              <QR text={makeURL(s.serial,s.trackingNo,bot,chat,s.phone||"")} size={110}/>
-            </div>
-            {s.phone?<div style={{color:"#6b7280",fontSize:10,fontWeight:700}}>📞 {s.phone}</div>:<div style={{color:"#6b7280",fontSize:9}}>📞 รับหลังลงทะเบียน</div>}
-            <div style={{display:"flex",alignItems:"center",gap:3,justifyContent:"center",marginTop:2}}>
-              {s.simCode&&<span style={{background:netColor(s.simCode),color:"white",fontSize:9,fontWeight:800,borderRadius:3,padding:"1px 4px"}}>{s.simCode}</span>}
-              <span style={{color:"#e2e8f0",fontSize:10,fontWeight:700}}>ซิมหมายเลข: {s.trackingNo}</span>
-            </div>
-            <div style={{display:"flex",gap:4,marginTop:6}}>
-              <button onClick={e=>{e.stopPropagation();onPreview(s);}} style={{...C.btnS,flex:1,fontSize:10,padding:"4px 0"}}>👁 ดู</button>
-              <button onClick={e=>{e.stopPropagation();onDeleteSim(s.serial);}} style={{...C.btnD,fontSize:10,padding:"4px 7px"}}>🗑</button>
-            </div>
-          </div>
-        ))}
-      </div>}
+  return (/*#__PURE__*/
+    React.createElement("div", { style: C.card }, /*#__PURE__*/
+    React.createElement("h3", { style: { ...C.h3, marginBottom: 12 } }, "🔲 QR Code Serial Sim"), /*#__PURE__*/
+    React.createElement("div", { style: { display: "flex", gap: 6, marginBottom: 14, borderBottom: "1px solid rgba(255,255,255,0.08)", paddingBottom: 10 } },
+    [{ id: "new", label: "🖨️ ยังไม่พิมพ์ (" + notP.length + ")", color: "#a5b4fc" }, { id: "done", label: "✅ พิมพ์แล้ว (" + done.length + ")", color: "#6ee7b7" }].map((t) => /*#__PURE__*/
+    React.createElement("button", { key: t.id, onClick: () => {setSub(t.id);setSel([]);},
+      style: { flex: 1, padding: "8px 4px", border: "none", borderRadius: 9, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
+        background: sub === t.id ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.04)",
+        color: sub === t.id ? t.color : "#8b8fa8",
+        borderBottom: sub === t.id ? "2px solid " + t.color : "2px solid transparent" } }, t.label)
+    )
+    ), /*#__PURE__*/
+    React.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" } }, /*#__PURE__*/
+    React.createElement("input", { style: { ...C.inp, flex: 1, minWidth: 140 }, value: q, onChange: (e) => setQ(e.target.value), placeholder: "🔍 ค้นหา..." }), /*#__PURE__*/
+    React.createElement("button", { style: C.btnS, onClick: () => setSel(fl.map((s) => s.serial)) }, "เลือกทั้งหมด"), /*#__PURE__*/
+    React.createElement("button", { style: C.btnS, onClick: () => setSel([]) }, "ยกเลิก")
+    ),
+    sel.length > 0 && /*#__PURE__*/React.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" } },
+    sub === "new" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/
+    React.createElement("button", { onClick: doPrint, disabled: printing, style: { ...C.btnP, flex: 1, opacity: printing ? 0.6 : 1 } }, printing ? "⏳ กำลังสร้าง..." : "🖨️ พิมพ์ QR (" + sel.length + ")"), /*#__PURE__*/
+    React.createElement("button", { onClick: moveToDone, style: { ...C.btnS, flex: 1, background: "rgba(16,185,129,0.15)", color: "#6ee7b7", border: "1px solid rgba(16,185,129,0.4)", fontWeight: 700 } }, "✅ ย้ายไปพิมพ์แล้ว")
+    ),
+    sub === "done" && /*#__PURE__*/React.createElement("button", { onClick: () => {sel.forEach((s) => onUnmarkPrinted(s));setSel([]);}, style: { ...C.btnS, flex: 1, color: "#f59e0b", border: "1px solid rgba(245,158,11,0.4)" } }, "↩️ ย้ายกลับ")
+    ),
+    fl.length === 0 && /*#__PURE__*/React.createElement("div", { style: { textAlign: "center", padding: 36, color: "#8b8fa8" } }, /*#__PURE__*/React.createElement("div", { style: { fontSize: 36, marginBottom: 8 } }, sub === "new" ? "🎉" : "📭"), /*#__PURE__*/React.createElement("div", null, sub === "new" ? "พิมพ์ QR ครบทุกซิมแล้ว" : "ยังไม่มีซิมที่พิมพ์แล้ว")), /*#__PURE__*/
+    React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(145px,1fr))", gap: 10 } },
+    fl.map((s) => /*#__PURE__*/
+    React.createElement("div", { key: s.serial, onClick: () => tog(s.serial),
+      style: { background: sel.includes(s.serial) ? "rgba(79,70,229,0.2)" : "rgba(255,255,255,0.04)",
+        border: "2px solid " + (sel.includes(s.serial) ? "#4f46e5" : "rgba(255,255,255,0.08)"),
+        borderRadius: 12, padding: 10, textAlign: "center", cursor: "pointer", position: "relative" } },
+    sel.includes(s.serial) && /*#__PURE__*/React.createElement("div", { style: { position: "absolute", top: 6, right: 6, width: 18, height: 18, background: "#4f46e5", borderRadius: 99, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "white", fontWeight: 700 } }, "✓"), /*#__PURE__*/
+    React.createElement("div", { style: { background: "#fff", borderRadius: 8, padding: 4, display: "inline-block", marginBottom: 4 } }, /*#__PURE__*/
+    React.createElement(QR, { text: makeURL(s.serial, s.trackingNo, bot, chat, s.phone || ""), size: 110 })
+    ),
+    s.phone ? /*#__PURE__*/React.createElement("div", { style: { color: "#000", fontSize: 10, fontWeight: 700 } }, "📞 ", s.phone) : /*#__PURE__*/React.createElement("div", { style: { color: "#000", fontSize: 9 } }, "📞 รับหลังลงทะเบียน"), /*#__PURE__*/
+    React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 3, justifyContent: "center", marginTop: 2 } },
+    s.simCode && /*#__PURE__*/React.createElement("span", { style: { background: s.simCode === "K" ? "#4f46e5" : "#059669", color: "white", fontSize: 9, fontWeight: 800, borderRadius: 3, padding: "1px 4px" } }, s.simCode), /*#__PURE__*/
+    React.createElement("span", { style: { color: "#000", fontSize: 10, fontWeight: 700 } }, "ซิมหมายเลข: ", s.trackingNo, s.simType === "free" ? " (ฟรี)" : "")
+    ), /*#__PURE__*/
+    React.createElement("div", { style: { display: "flex", gap: 4, marginTop: 6 } }, /*#__PURE__*/
+    React.createElement("button", { onClick: (e) => {e.stopPropagation();onPreview(s);}, style: { ...C.btnS, flex: 1, fontSize: 10, padding: "4px 0" } }, "👁 ดู"), /*#__PURE__*/
+    React.createElement("button", { onClick: (e) => {e.stopPropagation();onDeleteSim(s.serial);}, style: { ...C.btnD, fontSize: 10, padding: "4px 7px" } }, "🗑")
+    )
+    )
+    )
+    )
+    ));
 
-      {/* แท็บ พิมพ์แล้ว — แสดงเป็นรายการ ไม่ render QR ให้เร็ว */}
-      {sub==="done"&&<div>
-        {fl.map(s=>(
-          <div key={s.serial} onClick={()=>tog(s.serial)}
-            style={{background:sel.includes(s.serial)?"rgba(79,70,229,0.12)":"rgba(255,255,255,0.03)",
-              border:"1px solid "+(sel.includes(s.serial)?"#4f46e5":"rgba(255,255,255,0.07)"),
-              borderRadius:10,padding:"10px 14px",marginBottom:6,cursor:"pointer",display:"flex",alignItems:"center",gap:10}}>
-            <div style={{width:18,height:18,border:"2px solid "+(sel.includes(s.serial)?"#4f46e5":"rgba(255,255,255,0.2)"),borderRadius:4,background:sel.includes(s.serial)?"#4f46e5":"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-              {sel.includes(s.serial)&&<span style={{color:"white",fontSize:11,fontWeight:700}}>✓</span>}
-            </div>
-            <div style={{flex:1,minWidth:0}}>
-              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2}}>
-                {s.simCode&&<span style={{background:netColor(s.simCode),color:"white",fontSize:9,fontWeight:800,borderRadius:3,padding:"1px 5px"}}>{s.simCode}</span>}
-                <span style={{color:"#e2e8f0",fontWeight:700,fontSize:13}}>ซิมหมายเลข: {s.trackingNo}</span>
-              </div>
-              <div style={{color:"#8b8fa8",fontSize:11,fontFamily:"monospace",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.serial}</div>
-              {s.phone&&<div style={{color:"#6ee7b7",fontSize:11}}>📞 {s.phone}</div>}
-            </div>
-            <div style={{display:"flex",gap:4,flexShrink:0}}>
-              <button onClick={e=>{e.stopPropagation();onPreview(s);}} style={{...C.btnS,fontSize:10,padding:"4px 8px"}}>👁</button>
-              <button onClick={e=>{e.stopPropagation();onDeleteSim(s.serial);}} style={{...C.btnD,fontSize:10,padding:"4px 7px"}}>🗑</button>
-            </div>
-          </div>
-        ))}
-      </div>}
-    </div>
+}
+function PendingTab({ sims, onMarkScanned, onPreview }) {
+  const fl = sims.filter((s) => !s.scannedByCustomer);
+  return /*#__PURE__*/React.createElement("div", { style: C.card }, /*#__PURE__*/React.createElement("h3", { style: C.h3 }, "⏳ รอสแกน (", fl.length, ")"),
+  fl.length === 0 ? /*#__PURE__*/React.createElement("div", { style: { textAlign: "center", padding: 32, color: "#8b8fa8" } }, "✅ ไม่มีซิมรอสแกน") : fl.map((s) => /*#__PURE__*/
+  React.createElement("div", { key: s.serial, style: { background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 10, padding: "10px 14px", marginBottom: 8 } }, /*#__PURE__*/
+  React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } }, /*#__PURE__*/
+  React.createElement("div", null, /*#__PURE__*/
+  React.createElement("div", { style: { color: "white", fontFamily: "monospace", fontSize: 13 } }, s.serial), /*#__PURE__*/
+  React.createElement("div", { style: { color: "#a78bfa", fontSize: 11 } }, "ซิมหมายเลข: ", s.trackingNo),
+  s.phone && /*#__PURE__*/React.createElement("div", { style: { color: "#6ee7b7", fontSize: 11 } }, "📞 ", s.phone)
+  ), /*#__PURE__*/
+  React.createElement("div", { style: { display: "flex", gap: 6 } }, /*#__PURE__*/
+  React.createElement("button", { onClick: () => onPreview(s), style: { ...C.btnS, fontSize: 11, padding: "5px 8px" } }, "👁"), /*#__PURE__*/
+  React.createElement("button", { onClick: () => onMarkScanned(s.serial), style: { ...C.btnP, fontSize: 11, padding: "5px 8px" } }, "✅")
+  )
+  )
+  )
+  )
   );
 }
-function PendingTab({sims,onMarkScanned,onPreview}){
-  const [q,setQ]=useState("");
-  const all=sims.filter(s=>!s.scannedByCustomer);
-  const fl=all.filter(s=>{
-    if(!q)return true;
-    const ql=q.toLowerCase();
-    return s.serial.toLowerCase().includes(ql)||
-           s.trackingNo.toLowerCase().includes(ql)||
-           (s.simCode||"").toLowerCase()+s.trackingNo.toLowerCase().includes(ql)||
-           (s.phone||"").includes(q);
-  });
-  return<div style={C.card}>
-    <h3 style={C.h3}>⏳ รอสแกน ({all.length})</h3>
-    <input style={{...C.inp,marginBottom:12}} value={q} onChange={e=>setQ(e.target.value)}
-      placeholder="🔍 ค้นหา serial / ซิมหมายเลข / เบอร์โทร..."/>
-    {q&&<div style={{color:"#8b8fa8",fontSize:12,marginBottom:8}}>พบ {fl.length} รายการ</div>}
-    {fl.length===0?<div style={{textAlign:"center",padding:32,color:"#8b8fa8"}}>{all.length===0?"✅ ไม่มีซิมรอสแกน":"🔍 ไม่พบรายการที่ค้นหา"}</div>:fl.map(s=>(
-      <div key={s.serial} style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:10,padding:"10px 14px",marginBottom:8}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <div>
-            <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2}}>
-              {s.simCode&&<span style={{background:netColor(s.simCode),color:"white",fontSize:9,fontWeight:800,borderRadius:3,padding:"1px 5px"}}>{s.simCode}</span>}
-              <span style={{color:"#a78bfa",fontWeight:700,fontSize:12}}>ซิมหมายเลข: {s.trackingNo}</span>
-            </div>
-            <div style={{color:"white",fontFamily:"monospace",fontSize:12}}>{s.serial}</div>
-            {s.phone&&<div style={{color:"#6ee7b7",fontSize:11}}>📞 {s.phone}</div>}
-          </div>
-          <div style={{display:"flex",gap:6}}>
-            <button onClick={()=>onPreview(s)} style={{...C.btnS,fontSize:11,padding:"5px 8px"}}>👁</button>
-            <button onClick={()=>onMarkScanned(s.serial)} style={{...C.btnP,fontSize:11,padding:"5px 8px"}}>✅</button>
-          </div>
-        </div>
-      </div>
-    ))}
-  </div>;
+
+function ScannedTab({ sims }) {
+  const fl = sims.filter((s) => s.scannedByCustomer);
+  return /*#__PURE__*/React.createElement("div", { style: C.card }, /*#__PURE__*/React.createElement("h3", { style: C.h3 }, "📋 ลงทะเบียนแล้ว (", fl.length, ")"),
+  fl.map((s) => /*#__PURE__*/React.createElement("div", { key: s.serial, style: { background: "rgba(5,150,105,0.05)", border: "1px solid rgba(5,150,105,0.15)", borderRadius: 10, padding: "10px 14px", marginBottom: 8 } }, /*#__PURE__*/
+  React.createElement("div", { style: { color: "white", fontFamily: "monospace", fontSize: 13 } }, s.serial), /*#__PURE__*/
+  React.createElement("div", { style: { color: "#a78bfa", fontSize: 11 } }, "ซิมหมายเลข: ", s.trackingNo),
+  s.phone && /*#__PURE__*/React.createElement("div", { style: { color: "#6ee7b7", fontSize: 11 } }, "📞 ", s.phone),
+  s.scannedAt && /*#__PURE__*/React.createElement("div", { style: { color: "#8b8fa8", fontSize: 11 } }, "⏰ ", new Date(s.scannedAt).toLocaleString("th-TH"))
+  ))
+  );
 }
 
-function ScannedTab({sims}){
-  const fl=sims.filter(s=>s.scannedByCustomer);
-  return<div style={C.card}><h3 style={C.h3}>📋 ลงทะเบียนแล้ว ({fl.length})</h3>
-    {fl.map(s=><div key={s.serial} style={{background:"rgba(5,150,105,0.05)",border:"1px solid rgba(5,150,105,0.15)",borderRadius:10,padding:"10px 14px",marginBottom:8}}>
-      <div style={{color:"white",fontFamily:"monospace",fontSize:13}}>{s.serial}</div>
-      <div style={{color:"#a78bfa",fontSize:11}}>ซิมหมายเลข: {s.trackingNo}</div>
-      {s.phone&&<div style={{color:"#6ee7b7",fontSize:11}}>📞 {s.phone}</div>}
-      {s.scannedAt&&<div style={{color:"#8b8fa8",fontSize:11}}>⏰ {new Date(s.scannedAt).toLocaleString("th-TH")}</div>}
-    </div>)}
-  </div>;
+function EPh({ sim, onUpdate }) {
+  const [edit, setEdit] = useState(false),[val, setVal] = useState(sim.phone || "");
+  if (edit) return /*#__PURE__*/React.createElement("div", { style: { display: "flex", gap: 4 } }, /*#__PURE__*/
+  React.createElement("input", { style: { ...C.inp, width: 110, padding: "4px 8px", fontSize: 12 }, value: val, onChange: (e) => setVal(e.target.value.replace(/[^0-9]/g, "")), maxLength: 10, inputMode: "numeric", autoFocus: true,
+    onKeyDown: (e) => {if (e.key === "Enter") {onUpdate(sim.serial, val.trim());setEdit(false);}if (e.key === "Escape") setEdit(false);} }), /*#__PURE__*/
+  React.createElement("button", { onClick: () => {onUpdate(sim.serial, val.trim());setEdit(false);}, style: { ...C.btnP, padding: "4px 8px", fontSize: 11 } }, "✓"), /*#__PURE__*/
+  React.createElement("button", { onClick: () => setEdit(false), style: { ...C.btnS, padding: "4px 6px", fontSize: 11 } }, "✕")
+  );
+  return /*#__PURE__*/React.createElement("div", { onClick: () => setEdit(true), style: { cursor: "pointer", minWidth: 90 } },
+  sim.phone ? /*#__PURE__*/React.createElement("span", { style: { color: "#6ee7b7", fontSize: 12, fontWeight: 600 } }, sim.phone) : /*#__PURE__*/React.createElement("span", { style: { color: "#6b7280", fontSize: 11, fontStyle: "italic" } }, "+ เพิ่มเบอร์")
+  );
 }
 
-function EPh({sim,onUpdate}){
-  const [edit,setEdit]=useState(false),[val,setVal]=useState(sim.phone||"");
-  if(edit)return<div style={{display:"flex",gap:4}}>
-    <input style={{...C.inp,width:110,padding:"4px 8px",fontSize:12}} value={val} onChange={e=>setVal(e.target.value.replace(/[^0-9]/g,""))} maxLength={10} inputMode="numeric" autoFocus
-      onKeyDown={e=>{if(e.key==="Enter"){onUpdate(sim.serial,val.trim());setEdit(false);}if(e.key==="Escape")setEdit(false);}}/>
-    <button onClick={()=>{onUpdate(sim.serial,val.trim());setEdit(false);}} style={{...C.btnP,padding:"4px 8px",fontSize:11}}>✓</button>
-    <button onClick={()=>setEdit(false)} style={{...C.btnS,padding:"4px 6px",fontSize:11}}>✕</button>
-  </div>;
-  return<div onClick={()=>setEdit(true)} style={{cursor:"pointer",minWidth:90}}>
-    {sim.phone?<span style={{color:"#6ee7b7",fontSize:12,fontWeight:600}}>{sim.phone}</span>:<span style={{color:"#6b7280",fontSize:11,fontStyle:"italic"}}>+ เพิ่มเบอร์</span>}
-  </div>;
-}
-
-function SimList({sims,onDelete,onUpdatePhone}){
-  const [q,setQ]=useState(""),[pg,setPg]=useState(1);
-  const pp=15;
-  const fl=sims.filter(s=>s.serial.toLowerCase().includes(q.toLowerCase())||s.trackingNo.includes(q));
-  const pd=fl.slice((pg-1)*pp,pg*pp),pages=Math.ceil(fl.length/pp);
-  const csv=()=>{
-    const h=["เลขซีเรียล","เลขติดตาม","เบอร์โทร","สถานะ","วันที่เพิ่ม"];
-    const r=fl.map(s=>[s.serial,s.trackingNo,s.phone||"",s.scannedByCustomer?"✓":"-",fmtD(s.createdAt)]);
-    const blob=new Blob(["\uFEFF"+[h,...r].map(x=>x.join(",")).join("\n")],{type:"text/csv;charset=utf-8"});
-    Object.assign(document.createElement("a"),{href:URL.createObjectURL(blob),download:"sims_"+todayS()+".csv"}).click();
+function SimList({ sims, onDelete, onUpdatePhone }) {
+  const [q, setQ] = useState(""),[pg, setPg] = useState(1);
+  const pp = 15;
+  const fl = sims.filter((s) => s.serial.toLowerCase().includes(q.toLowerCase()) || s.trackingNo.includes(q));
+  const pd = fl.slice((pg - 1) * pp, pg * pp),pages = Math.ceil(fl.length / pp);
+  const csv = () => {
+    const h = ["เลขซีเรียล", "เลขติดตาม", "เบอร์โทร", "สถานะ", "วันที่เพิ่ม"];
+    const r = fl.map((s) => [s.serial, s.trackingNo, s.phone || "", s.scannedByCustomer ? "✓" : "-", fmtD(s.createdAt)]);
+    const blob = new Blob(["\uFEFF" + [h, ...r].map((x) => x.join(",")).join("\n")], { type: "text/csv;charset=utf-8" });
+    Object.assign(document.createElement("a"), { href: URL.createObjectURL(blob), download: "sims_" + todayS() + ".csv" }).click();
   };
-  return<div style={C.card}>
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
-      <h3 style={{...C.h3,margin:0}}>📋 รายการซิมทั้งหมด ({fl.length})</h3>
-      <button style={{...C.btnS,color:"#6ee7b7"}} onClick={csv}>📥 Export CSV</button>
-    </div>
-    <div style={{display:"flex",gap:8,marginBottom:12}}>
-      <input style={{...C.inp,flex:1}} value={q} onChange={e=>{setQ(e.target.value);setPg(1);}} placeholder="🔍 ค้นหา..."/>
-      {q&&<button onClick={()=>{setQ("");setPg(1);}} style={{...C.btnS,padding:"10px 10px",color:"#f87171"}}>✕</button>}
-    </div>
-    <div style={{overflowX:"auto"}}>
-      <table style={{width:"100%",borderCollapse:"collapse"}}>
-        <thead><tr>{["#","เลขซีเรียล","เลขติดตาม","📞 เบอร์","สถานะ","วันที่","ลบ"].map(h=><th key={h} style={C.th}>{h}</th>)}</tr></thead>
-        <tbody>{pd.map((s,i)=><tr key={s.serial} style={{background:i%2===0?"rgba(255,255,255,0.02)":"transparent"}}>
-          <td style={C.td}>{(pg-1)*pp+i+1}</td>
-          <td style={{...C.td,fontFamily:"monospace",fontSize:11}}>{s.serial}</td>
-          <td style={{...C.td,color:"#a78bfa",fontWeight:700}}>{s.trackingNo}</td>
-          <td style={C.td}><EPh sim={s} onUpdate={onUpdatePhone}/></td>
-          <td style={C.td}><span style={{padding:"2px 8px",borderRadius:99,fontSize:11,background:s.scannedByCustomer?"#064e3b":"#1e1b4b",color:s.scannedByCustomer?"#6ee7b7":"#a5b4fc"}}>{s.scannedByCustomer?"✓ ลงทะเบียน":"รอสแกน"}</span></td>
-          <td style={{...C.td,fontSize:11,color:"#8b8fa8"}}>{fmtD(s.createdAt)}</td>
-          <td style={C.td}><button onClick={()=>onDelete(s.serial)} style={C.btnD}>🗑</button></td>
-        </tr>)}</tbody>
-      </table>
-    </div>
-    {pages>1&&<div style={{display:"flex",gap:6,justifyContent:"center",marginTop:12,flexWrap:"wrap"}}>
-      {Array.from({length:pages},(_,i)=><button key={i} onClick={()=>setPg(i+1)} style={{...pg===i+1?C.btnP:C.btnS,padding:"6px 12px",fontSize:12}}>{i+1}</button>)}
-    </div>}
-  </div>;
+  return /*#__PURE__*/React.createElement("div", { style: C.card }, /*#__PURE__*/
+  React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 8 } }, /*#__PURE__*/
+  React.createElement("h3", { style: { ...C.h3, margin: 0 } }, "📋 รายการซิมทั้งหมด (", fl.length, ")"), /*#__PURE__*/
+  React.createElement("button", { style: { ...C.btnS, color: "#6ee7b7" }, onClick: csv }, "📥 Export CSV")
+  ), /*#__PURE__*/
+  React.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 12 } }, /*#__PURE__*/
+  React.createElement("input", { style: { ...C.inp, flex: 1 }, value: q, onChange: (e) => {setQ(e.target.value);setPg(1);}, placeholder: "🔍 ค้นหา..." }),
+  q && /*#__PURE__*/React.createElement("button", { onClick: () => {setQ("");setPg(1);}, style: { ...C.btnS, padding: "10px 10px", color: "#f87171" } }, "✕")
+  ), /*#__PURE__*/
+  React.createElement("div", { style: { overflowX: "auto" } }, /*#__PURE__*/
+  React.createElement("table", { style: { width: "100%", borderCollapse: "collapse" } }, /*#__PURE__*/
+  React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, ["#", "เลขซีเรียล", "เลขติดตาม", "📞 เบอร์", "สถานะ", "วันที่", "ลบ"].map((h) => /*#__PURE__*/React.createElement("th", { key: h, style: C.th }, h)))), /*#__PURE__*/
+  React.createElement("tbody", null, pd.map((s, i) => /*#__PURE__*/React.createElement("tr", { key: s.serial, style: { background: i % 2 === 0 ? "rgba(255,255,255,0.02)" : "transparent" } }, /*#__PURE__*/
+  React.createElement("td", { style: C.td }, (pg - 1) * pp + i + 1), /*#__PURE__*/
+  React.createElement("td", { style: { ...C.td, fontFamily: "monospace", fontSize: 11 } }, s.serial), /*#__PURE__*/
+  React.createElement("td", { style: { ...C.td, color: "#a78bfa", fontWeight: 700 } }, s.trackingNo), /*#__PURE__*/
+  React.createElement("td", { style: C.td }, /*#__PURE__*/React.createElement(EPh, { sim: s, onUpdate: onUpdatePhone })), /*#__PURE__*/
+  React.createElement("td", { style: C.td }, /*#__PURE__*/React.createElement("span", { style: { padding: "2px 8px", borderRadius: 99, fontSize: 11, background: s.scannedByCustomer ? "#064e3b" : "#1e1b4b", color: s.scannedByCustomer ? "#6ee7b7" : "#a5b4fc" } }, s.scannedByCustomer ? "✓ ลงทะเบียน" : "รอสแกน")), /*#__PURE__*/
+  React.createElement("td", { style: { ...C.td, fontSize: 11, color: "#8b8fa8" } }, fmtD(s.createdAt)), /*#__PURE__*/
+  React.createElement("td", { style: C.td }, /*#__PURE__*/React.createElement("button", { onClick: () => onDelete(s.serial), style: C.btnD }, "🗑"))
+  )))
+  )
+  ),
+  pages > 1 && /*#__PURE__*/React.createElement("div", { style: { display: "flex", gap: 6, justifyContent: "center", marginTop: 12, flexWrap: "wrap" } },
+  Array.from({ length: pages }, (_, i) => /*#__PURE__*/React.createElement("button", { key: i, onClick: () => setPg(i + 1), style: { ...(pg === i + 1 ? C.btnP : C.btnS), padding: "6px 12px", fontSize: 12 } }, i + 1))
+  )
+  );
 }
-function Summary({sims,bot,chat}){
-  const [sending,setSending]=useState(false),[lastSent,setLastSent]=useState("");
-  const today=todayS();
-  const ts=sims.filter(s=>s.scannedByCustomer&&s.scannedAt&&new Date(s.scannedAt).toISOString().slice(0,10)===today);
-  const sm={};
-  sims.forEach(s=>{const k=new Date(s.createdAt).toISOString().slice(0,10);if(!sm[k])sm[k]={a:0,sc:0};sm[k].a++;if(s.scannedByCustomer)sm[k].sc++;});
-  const send=async()=>{
-    if(!bot||!chat){alert("กรุณาตั้งค่า Bot Token และ Chat ID ก่อน");return;}
+function Summary({ sims, bot, chat, simType }) {
+  const [sending, setSending] = useState(false),[lastSent, setLastSent] = useState("");
+  const today = todayS();
+  const ts = sims.filter((s) => s.scannedByCustomer && s.scannedAt && new Date(s.scannedAt).toISOString().slice(0, 10) === today);
+  const sm = {};
+  sims.forEach((s) => {const k = new Date(s.createdAt).toISOString().slice(0, 10);if (!sm[k]) sm[k] = { a: 0, sc: 0 };sm[k].a++;if (s.scannedByCustomer) sm[k].sc++;});
+  const send = async () => {
+    if (!bot || !chat) {alert("กรุณาตั้งค่า Bot Token และ Chat ID ก่อน");return;}
     setSending(true);
-    const now=new Date();
-    const ds=now.toLocaleDateString("th-TH",{year:"numeric",month:"long",day:"numeric"});
-    const tm=now.toLocaleTimeString("th-TH");
-    const tn="📋 ซิมทั้งหมด";
-    const lines=ts.map((s,i)=>(i+1)+". "+s.serial+"\n   📞 "+(s.phone||"รับหลังลงทะเบียน")+"\n   🔢 ซิมหมายเลข: "+s.trackingNo+"\n   ⏰ "+(s.scannedAt?new Date(s.scannedAt).toLocaleString("th-TH"):"-")).join("\n\n");
-    const msg="📊 รายงานประจำวัน "+tn+"\n📅 วันที่: "+ds+" เวลา "+tm+"\n────────────────────────────\n✅ ลงทะเบียนวันนี้: "+ts.length+" ซิม\n📦 ซิมทั้งหมด: "+sims.length+" ซิม\n⏳ รอลงทะเบียน: "+sims.filter(s=>!s.scannedByCustomer).length+" ซิม\n────────────────────────────\n"+(ts.length>0?"📋 รายการวันนี้:\n\n"+lines:"📋 ยังไม่มีลูกค้าลงทะเบียนวันนี้");
-    try{
-      const res=await fetch("https://api.telegram.org/bot"+bot+"/sendMessage",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({chat_id:chat,text:msg})});
-      if(res.ok){setLastSent(tm);alert("✅ ส่ง Report สำเร็จ!");}
-      else alert("❌ ส่งไม่สำเร็จ กรุณาตรวจสอบ Bot Token และ Chat ID");
-    }catch(e){alert("❌ "+e.message);}
+    const now = new Date();
+    const ds = now.toLocaleDateString("th-TH", { year: "numeric", month: "long", day: "numeric" });
+    const tm = now.toLocaleTimeString("th-TH");
+    const tn = TYPES[simType].emoji + " " + TYPES[simType].label;
+    const lines = ts.map((s, i) => i + 1 + ". " + s.serial + "\n   📞 " + (s.phone || "รับหลังลงทะเบียน") + "\n   🔢 ซิมหมายเลข: " + s.trackingNo + "\n   ⏰ " + (s.scannedAt ? new Date(s.scannedAt).toLocaleString("th-TH") : "-")).join("\n\n");
+    const msg = "📊 รายงานประจำวัน " + tn + "\n📅 วันที่: " + ds + " เวลา " + tm + "\n────────────────────────────\n✅ ลงทะเบียนวันนี้: " + ts.length + " ซิม\n📦 ซิมทั้งหมด: " + sims.length + " ซิม\n⏳ รอลงทะเบียน: " + sims.filter((s) => !s.scannedByCustomer).length + " ซิม\n────────────────────────────\n" + (ts.length > 0 ? "📋 รายการวันนี้:\n\n" + lines : "📋 ยังไม่มีลูกค้าลงทะเบียนวันนี้");
+    try {
+      const res = await fetch("https://api.telegram.org/bot" + bot + "/sendMessage", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chat_id: chat, text: msg }) });
+      if (res.ok) {setLastSent(tm);alert("✅ ส่ง Report สำเร็จ!");} else
+      alert("❌ ส่งไม่สำเร็จ กรุณาตรวจสอบ Bot Token และ Chat ID");
+    } catch (e) {alert("❌ " + e.message);}
     setSending(false);
   };
-  return<div style={C.card}>
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:8}}>
-      <h3 style={{...C.h3,margin:0}}>📊 สรุปข้อมูล</h3>
-      <button onClick={send} disabled={sending} style={{...C.btnP,opacity:sending?0.6:1}}>{sending?"⏳ กำลังส่ง...":"📤 ส่ง Report Telegram"}</button>
-    </div>
-    {lastSent&&<div style={{background:"rgba(5,150,105,0.12)",border:"1px solid rgba(5,150,105,0.3)",borderRadius:10,padding:"8px 14px",marginBottom:12,fontSize:12,color:"#6ee7b7"}}>✅ ส่งล่าสุดเวลา {lastSent} น.</div>}
-    <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:16}}>
-      {[{l:"ลงทะเบียนวันนี้",v:ts.length,c:"#6ee7b7"},{l:"ซิมทั้งหมด",v:sims.length,c:"#a5b4fc"},{l:"รอลงทะเบียน",v:sims.filter(s=>!s.scannedByCustomer).length,c:"#fbbf24"}].map(it=>(
-        <div key={it.l} style={{background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:12,padding:"12px 8px",textAlign:"center"}}>
-          <div style={{color:it.c,fontSize:26,fontWeight:800}}>{it.v}</div>
-          <div style={{color:"#8b8fa8",fontSize:11,marginTop:4}}>{it.l}</div>
-        </div>
-      ))}
-    </div>
-    <h4 style={{color:"#e2e8f0",fontSize:13,fontWeight:700,marginBottom:8}}>✅ ลงทะเบียนวันนี้ ({ts.length})</h4>
-    {ts.length===0?<div style={{textAlign:"center",padding:20,color:"#8b8fa8"}}>ยังไม่มีลูกค้าลงทะเบียนวันนี้</div>:ts.map((s,i)=>(
-      <div key={s.serial} style={{background:"rgba(5,150,105,0.08)",border:"1px solid rgba(5,150,105,0.2)",borderRadius:10,padding:"10px 14px",marginBottom:8}}>
-        <div style={{color:"white",fontFamily:"monospace",fontSize:12,fontWeight:700}}>{i+1}. {s.serial}</div>
-        <div style={{color:"#6ee7b7",fontSize:11}}>📞 {s.phone||"รับหลังลงทะเบียน"}</div>
-        <div style={{color:"#a78bfa",fontSize:11}}>🔢 {s.trackingNo}</div>
-        {s.scannedAt&&<div style={{color:"#8b8fa8",fontSize:11}}>⏰ {new Date(s.scannedAt).toLocaleTimeString("th-TH")}</div>}
-      </div>
-    ))}
-    <h4 style={{color:"#e2e8f0",fontSize:13,fontWeight:700,margin:"16px 0 8px"}}>📅 สรุปรายวัน</h4>
-    <div style={{overflowX:"auto"}}>
-      <table style={{width:"100%",borderCollapse:"collapse"}}>
-        <thead><tr>{["วันที่","เพิ่มซิม","ลงทะเบียน"].map(h=><th key={h} style={C.th}>{h}</th>)}</tr></thead>
-        <tbody>{Object.entries(sm).sort((a,b)=>b[0].localeCompare(a[0])).map(([date,v])=>(
-          <tr key={date} style={{background:date===today?"rgba(5,150,105,0.08)":"transparent"}}>
-            <td style={{...C.td,color:date===today?"#6ee7b7":"#e2e8f0"}}>{date}</td>
-            <td style={{...C.td,textAlign:"center"}}>{v.a}</td>
-            <td style={{...C.td,textAlign:"center",color:"#6ee7b7"}}>{v.sc}</td>
-          </tr>
-        ))}</tbody>
-      </table>
-    </div>
-  </div>;
+  return /*#__PURE__*/React.createElement("div", { style: C.card }, /*#__PURE__*/
+  React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 8 } }, /*#__PURE__*/
+  React.createElement("h3", { style: { ...C.h3, margin: 0 } }, "📊 สรุปข้อมูล"), /*#__PURE__*/
+  React.createElement("button", { onClick: send, disabled: sending, style: { ...C.btnP, opacity: sending ? 0.6 : 1 } }, sending ? "⏳ กำลังส่ง..." : "📤 ส่ง Report Telegram")
+  ),
+  lastSent && /*#__PURE__*/React.createElement("div", { style: { background: "rgba(5,150,105,0.12)", border: "1px solid rgba(5,150,105,0.3)", borderRadius: 10, padding: "8px 14px", marginBottom: 12, fontSize: 12, color: "#6ee7b7" } }, "✅ ส่งล่าสุดเวลา ", lastSent, " น."), /*#__PURE__*/
+  React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8, marginBottom: 16 } },
+  [{ l: "ลงทะเบียนวันนี้", v: ts.length, c: "#6ee7b7" }, { l: "ซิมทั้งหมด", v: sims.length, c: "#a5b4fc" }, { l: "รอลงทะเบียน", v: sims.filter((s) => !s.scannedByCustomer).length, c: "#fbbf24" }].map((it) => /*#__PURE__*/
+  React.createElement("div", { key: it.l, style: { background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px 8px", textAlign: "center" } }, /*#__PURE__*/
+  React.createElement("div", { style: { color: it.c, fontSize: 26, fontWeight: 800 } }, it.v), /*#__PURE__*/
+  React.createElement("div", { style: { color: "#8b8fa8", fontSize: 11, marginTop: 4 } }, it.l)
+  )
+  )
+  ), /*#__PURE__*/
+  React.createElement("h4", { style: { color: "#e2e8f0", fontSize: 13, fontWeight: 700, marginBottom: 8 } }, "✅ ลงทะเบียนวันนี้ (", ts.length, ")"),
+  ts.length === 0 ? /*#__PURE__*/React.createElement("div", { style: { textAlign: "center", padding: 20, color: "#8b8fa8" } }, "ยังไม่มีลูกค้าลงทะเบียนวันนี้") : ts.map((s, i) => /*#__PURE__*/
+  React.createElement("div", { key: s.serial, style: { background: "rgba(5,150,105,0.08)", border: "1px solid rgba(5,150,105,0.2)", borderRadius: 10, padding: "10px 14px", marginBottom: 8 } }, /*#__PURE__*/
+  React.createElement("div", { style: { color: "white", fontFamily: "monospace", fontSize: 12, fontWeight: 700 } }, i + 1, ". ", s.serial), /*#__PURE__*/
+  React.createElement("div", { style: { color: "#6ee7b7", fontSize: 11 } }, "📞 ", s.phone || "รับหลังลงทะเบียน"), /*#__PURE__*/
+  React.createElement("div", { style: { color: "#a78bfa", fontSize: 11 } }, "🔢 ", s.trackingNo),
+  s.scannedAt && /*#__PURE__*/React.createElement("div", { style: { color: "#8b8fa8", fontSize: 11 } }, "⏰ ", new Date(s.scannedAt).toLocaleTimeString("th-TH"))
+  )
+  ), /*#__PURE__*/
+  React.createElement("h4", { style: { color: "#e2e8f0", fontSize: 13, fontWeight: 700, margin: "16px 0 8px" } }, "📅 สรุปรายวัน"), /*#__PURE__*/
+  React.createElement("div", { style: { overflowX: "auto" } }, /*#__PURE__*/
+  React.createElement("table", { style: { width: "100%", borderCollapse: "collapse" } }, /*#__PURE__*/
+  React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, ["วันที่", "เพิ่มซิม", "ลงทะเบียน"].map((h) => /*#__PURE__*/React.createElement("th", { key: h, style: C.th }, h)))), /*#__PURE__*/
+  React.createElement("tbody", null, Object.entries(sm).sort((a, b) => b[0].localeCompare(a[0])).map(([date, v]) => /*#__PURE__*/
+  React.createElement("tr", { key: date, style: { background: date === today ? "rgba(5,150,105,0.08)" : "transparent" } }, /*#__PURE__*/
+  React.createElement("td", { style: { ...C.td, color: date === today ? "#6ee7b7" : "#e2e8f0" } }, date), /*#__PURE__*/
+  React.createElement("td", { style: { ...C.td, textAlign: "center" } }, v.a), /*#__PURE__*/
+  React.createElement("td", { style: { ...C.td, textAlign: "center", color: "#6ee7b7" } }, v.sc)
+  )
+  ))
+  )
+  )
+  );
 }
 
-const NET_DEFAULTS={
-  K:{label:"True (K)",color:"#e53e3e",url:"https://app.true.th/prepaid-registration?language=th"},
-  L:{label:"True (L)",color:"#4f46e5",url:"https://app.true.th/prepaid-registration?language=th"},
-  A:{label:"AIS",color:"#d97706",url:"https://kyc.cloud.ais.th/client/select-cardtype"},
-  D:{label:"DTAC",color:"#0891b2",url:""},
-};
-const NET_LS="net_config_v1";
-const loadNetCfg=()=>{try{return JSON.parse(lsG(NET_LS)||"{}");}catch(e){return{};}};
-const saveNetCfgLS=cfg=>lsS(NET_LS,JSON.stringify(cfg));
-
-function Settings({bot,chat,setBot,setChat,onSave}){
-  const [b,setB]=useState(bot),[cc,setCC]=useState(chat);
-  const [nets,setNets]=useState(()=>{
-    const saved=loadNetCfg();
-    const merged={};
-    Object.keys(NET_DEFAULTS).forEach(k=>{merged[k]={...NET_DEFAULTS[k],...(saved[k]||{})};});
-    return merged;
-  });
-  const [saving,setSaving]=useState(false);
-  const [tab,setTab]=useState("tg"); // "tg" | "network"
-
-  const updNet=(code,field,val)=>setNets(prev=>({...prev,[code]:{...prev[code],[field]:val}}));
-
-  const uploadLogo=(code,e)=>{
-    const file=e.target.files&&e.target.files[0];if(!file)return;
-    if(file.size>200000){alert("รูปใหญ่เกินไป กรุณาใช้ไฟล์ไม่เกิน 200KB");return;}
-    const rd=new FileReader();
-    rd.onload=ev=>updNet(code,"logo",ev.target.result);
-    rd.readAsDataURL(file);
-  };
-
-  const saveAll=async()=>{
-    setSaving(true);
-    setBot(b);setChat(cc);
-    lsS("tg_bot",b);lsS("tg_chat",cc);
-    saveNetCfgLS(nets);
-    // บันทึก net config ลง Firebase ด้วย เพื่อให้ landing page ดึงได้
-    await fbS("/net_config",nets).catch(()=>{});
-    setSaving(false);
-    onSave();
-  };
-
-  return<div style={C.card}>
-    <h3 style={C.h3}>⚙️ ตั้งค่า</h3>
-    <div style={{display:"flex",gap:6,marginBottom:16}}>
-      {[{id:"tg",label:"📱 Telegram"},{id:"network",label:"🌐 เครือข่าย"}].map(t=>(
-        <button key={t.id} onClick={()=>setTab(t.id)}
-          style={{flex:1,padding:"9px",border:"none",borderRadius:10,cursor:"pointer",fontFamily:"inherit",fontWeight:700,fontSize:13,
-            background:tab===t.id?"rgba(255,255,255,0.12)":"rgba(255,255,255,0.04)",
-            color:tab===t.id?"#a5b4fc":"#8b8fa8",
-            borderBottom:tab===t.id?"2px solid #a5b4fc":"2px solid transparent"}}>
-          {t.label}
-        </button>
-      ))}
-    </div>
-
-    {tab==="tg"&&<div>
-      <div style={{marginBottom:12}}>
-        <div style={{color:"#94a3b8",fontSize:12,marginBottom:6}}>Bot Token</div>
-        <input style={C.inp} value={b} onChange={e=>setB(e.target.value)} placeholder="Bot Token..."/>
-      </div>
-      <div style={{marginBottom:16}}>
-        <div style={{color:"#94a3b8",fontSize:12,marginBottom:6}}>Chat ID</div>
-        <input style={C.inp} value={cc} onChange={e=>setCC(e.target.value)} placeholder="Chat ID..."/>
-      </div>
-    </div>}
-
-    {tab==="network"&&<div>
-      <div style={{color:"#8b8fa8",fontSize:12,marginBottom:14}}>ตั้งค่าโลโก้และลิงก์ลงทะเบียนของแต่ละเครือข่าย (ลูกค้าจะเห็นในหน้าสแกน QR)</div>
-      {Object.entries(nets).map(([code,cfg])=>(
-        <div key={code} style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:14,padding:14,marginBottom:12}}>
-          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
-            <div style={{width:8,height:8,borderRadius:"50%",background:cfg.color,flexShrink:0}}/>
-            <span style={{color:"white",fontWeight:700,fontSize:14}}>{cfg.label}</span>
-            <span style={{background:cfg.color,color:"white",fontSize:10,fontWeight:800,borderRadius:4,padding:"1px 7px"}}>{code}</span>
-          </div>
-
-          {/* โลโก้ */}
-          <div style={{marginBottom:10}}>
-            <div style={{color:"#94a3b8",fontSize:11,marginBottom:6}}>โลโก้เครือข่าย</div>
-            <div style={{display:"flex",alignItems:"center",gap:10}}>
-              {cfg.logo
-                ?<img src={cfg.logo} alt={cfg.label} style={{width:52,height:52,objectFit:"contain",background:"white",borderRadius:8,padding:4}}/>
-                :<div style={{width:52,height:52,background:"rgba(255,255,255,0.06)",borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>
-                  {code==="A"?"🟡":code==="D"?"🔵":code==="K"?"🔴":"🟣"}
-                </div>
-              }
-              <label style={{...C.btnS,fontSize:12,cursor:"pointer",display:"inline-block",padding:"7px 14px"}}>
-                📷 {cfg.logo?"เปลี่ยนโลโก้":"อัปโหลดโลโก้"}
-                <input type="file" accept="image/*" style={{display:"none"}} onChange={e=>uploadLogo(code,e)}/>
-              </label>
-              {cfg.logo&&<button onClick={()=>updNet(code,"logo","")} style={{...C.btnD,fontSize:11,padding:"6px 10px"}}>🗑</button>}
-            </div>
-          </div>
-
-          {/* ลิงก์ลงทะเบียน */}
-          <div>
-            <div style={{color:"#94a3b8",fontSize:11,marginBottom:6}}>ลิงก์ลงทะเบียนซิม</div>
-            <input style={{...C.inp,fontSize:12}} value={cfg.url} onChange={e=>updNet(code,"url",e.target.value)}
-              placeholder={"https://..."}/>
-          </div>
-        </div>
-      ))}
-    </div>}
-
-    <button style={{...C.btnP,marginTop:4,opacity:saving?0.6:1}} disabled={saving} onClick={saveAll}>
-      {saving?"⏳ กำลังบันทึก...":"💾 บันทึกทั้งหมด"}
-    </button>
-  </div>;
+function Settings({ bot, chat, setBot, setChat, onSave }) {
+  const [b, setB] = useState(bot),[cc, setCC] = useState(chat);
+  return /*#__PURE__*/React.createElement("div", { style: C.card }, /*#__PURE__*/
+  React.createElement("h3", { style: C.h3 }, "⚙️ ตั้งค่า Telegram"), /*#__PURE__*/
+  React.createElement("div", { style: { marginBottom: 12 } }, /*#__PURE__*/React.createElement("div", { style: { color: "#94a3b8", fontSize: 12, marginBottom: 6 } }, "Bot Token"), /*#__PURE__*/React.createElement("input", { style: C.inp, value: b, onChange: (e) => setB(e.target.value), placeholder: "Bot Token..." })), /*#__PURE__*/
+  React.createElement("div", { style: { marginBottom: 16 } }, /*#__PURE__*/React.createElement("div", { style: { color: "#94a3b8", fontSize: 12, marginBottom: 6 } }, "Chat ID"), /*#__PURE__*/React.createElement("input", { style: C.inp, value: cc, onChange: (e) => setCC(e.target.value), placeholder: "Chat ID..." })), /*#__PURE__*/
+  React.createElement("button", { style: C.btnP, onClick: () => {setBot(b);setChat(cc);lsS("tg_bot", b);lsS("tg_chat", cc);onSave();} }, "💾 บันทึก")
+  );
 }
 
-function ArchivedTab(){
-  const [sims,setSims]=useState([]);
-  const [loading,setLoading]=useState(true);
-  const [q,setQ]=useState("");
-  const [mode,setMode]=useState("single"); // "single" | "bulk"
-  const [bulkText,setBulkText]=useState("");
-  const [bulkResults,setBulkResults]=useState([]); // [{sim,status}]
-  const [bulkSearching,setBulkSearching]=useState(false);
+function ArchivedTab() {
+  const [sims, setSims] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [q, setQ] = useState("");
+  const [mode, setMode] = useState("single");
+  const [bulkText, setBulkText] = useState("");
+  const [bulkResults, setBulkResults] = useState([]);
+  const [bulkSearching, setBulkSearching] = useState(false);
 
-  useEffect(()=>{
+  useEffect(() => {
     setLoading(true);
-    const paths=[DB.arc,"/sims_plain_archived","/sims_free_archived"];
-    Promise.all(paths.map(p=>fbG(p).catch(()=>null))).then(results=>{
-      const all={};
-      results.forEach(d=>{
-        if(d&&typeof d==="object"&&!d.error){
-          Object.values(d).filter(s=>s&&s.serial).forEach(s=>{all[s.serial]=s;});
-        }
+    const paths = ["/sims_archived", "/sims_plain_archived", "/sims_free_archived"];
+    Promise.all(paths.map((p) => fbG(p).catch(() => null))).then((results) => {
+      const all = {};
+      results.forEach((d) => {
+        if (d && typeof d === "object" && !d.error)
+        Object.values(d).filter((s) => s && s.serial).forEach((s) => {all[s.serial] = s;});
       });
-      const list=Object.values(all);
-      list.sort((a,b)=>(b.printedAt||b.createdAt||0)-(a.printedAt||a.createdAt||0));
+      const list = Object.values(all);
+      list.sort((a, b) => (b.printedAt || b.createdAt || 0) - (a.printedAt || a.createdAt || 0));
       setSims(list);
       setLoading(false);
-    }).catch(()=>{setSims([]);setLoading(false);});
-  },[]);
+    }).catch(() => {setSims([]);setLoading(false);});
+  }, []);
 
-  // ดึง serial จากข้อความ Telegram หรือข้อความทั่วไป
-  const extractSerials=text=>{
-    const found=new Set();
-    const rows=text.split("\n");
-    rows.forEach(line=>{
-      const m1=line.match(/เลขซีเรียลซิม[: ]+([0-9A-Za-z]{8,})/);
-      if(m1)found.add(m1[1].trim());
-      const m2=line.match(/([0-9]{10,20})/);
-      if(m2)found.add(m2[1].trim());
+  const extractSerials = (text) => {
+    const found = new Set();
+    text.split("\n").forEach((line) => {
+      const m1 = line.match(/เลขซีเรียลซิม[: ]+([A-Za-z0-9]{8,})/);
+      if (m1) found.add(m1[1].trim());
+      const m2 = line.match(/([0-9]{10,20})/);
+      if (m2) found.add(m2[1].trim());
     });
-    return[...found].filter(s=>s.length>=8);
+    return [...found].filter((s) => s.length >= 8);
   };
 
-  const doBulkSearch=async()=>{
-    const serials=extractSerials(bulkText);
-    if(!serials.length)return;
-    setBulkSearching(true);setBulkResults([]);
-    const results=[];
-    for(const serial of serials){
-      const found=await searchArc(serial);
-      results.push({serial,sim:found||null,status:found?"found":"notfound"});
+  const searchArc = async (serial) => {
+    const paths = ["/sims_archived", "/sims_plain_archived", "/sims_free_archived", "/sims", "/sims_plain", "/sims_free"];
+    for (const p of paths) {
+      try {
+        const d = await fbG(p + "/" + toKey(serial));
+        if (d && d.serial) return { ...d, _path: p };
+      } catch (e) {}
     }
+    return null;
+  };
+
+  const doBulkSearch = async () => {
+    const raw = extractSerials(bulkText);
+    const serials = [...new Set(raw)];
+    if (!serials.length) return;
+    setBulkSearching(true);setBulkResults([]);
+    const results = [];
+    for (const serial of serials) {
+      const found = await searchArc(serial);
+      results.push({ serial, sim: found || null });
+    }
+    results.sort((a, b) => {
+      const s = (r) => r.sim && !r.sim.scannedByCustomer ? 0 : r.sim ? 1 : 2;
+      return s(a) - s(b);
+    });
     setBulkResults(results);
     setBulkSearching(false);
   };
 
-  const markScanned=(serial)=>{
-    const now=Date.now();
-    const allPaths=[DB.arc,"/sims_plain_archived","/sims_free_archived","/sims","/sims_plain","/sims_free"];
-    allPaths.forEach(p=>fbP(p+"/"+toKey(serial),{scannedByCustomer:true,scannedAt:now}).catch(()=>{}));
-    setSims(prev=>prev.map(s=>s.serial===serial?{...s,scannedByCustomer:true,scannedAt:now}:s));
-    setBulkResults(prev=>prev.map(r=>r.serial===serial?{...r,sim:{...r.sim,scannedByCustomer:true,scannedAt:now},status:"done"}:r));
+  const markOne = (serial, path) => {
+    const now = Date.now();
+    ["/sims_archived", "/sims_plain_archived", "/sims_free_archived", "/sims", "/sims_plain", "/sims_free"].
+    forEach((p) => fbP(p + "/" + toKey(serial), { scannedByCustomer: true, scannedAt: now }).catch(() => {}));
+    setSims((prev) => prev.map((s) => s.serial === serial ? { ...s, scannedByCustomer: true, scannedAt: now } : s));
+    setBulkResults((prev) => prev.map((r) => r.serial === serial ?
+    { ...r, sim: r.sim ? { ...r.sim, scannedByCustomer: true, scannedAt: now } : r.sim } : r));
   };
 
-  const markAllScanned=()=>{
-    const pending=bulkResults.filter(r=>r.sim&&!r.sim.scannedByCustomer);
-    if(!pending.length)return;
-    if(!confirm("ย้าย "+pending.length+" รายการเป็นลงทะเบียนแล้ว?"))return;
-    pending.forEach(r=>markScanned(r.serial));
+  const markAll = () => {
+    const pending = bulkResults.filter((r) => r.sim && !r.sim.scannedByCustomer);
+    if (!pending.length) return;
+    if (!window.confirm("ย้าย " + pending.length + " รายการเป็นลงทะเบียนแล้ว?")) return;
+    pending.forEach((r) => markOne(r.serial, r.sim && r.sim._path));
   };
 
-  const fl=sims.filter(s=>!q||s.serial.toLowerCase().includes(q.toLowerCase())||s.trackingNo.toLowerCase().includes(q.toLowerCase())||(s.phone||"").includes(q));
+  const delOne = (serial) => {
+    if (!window.confirm("ลบซิม " + serial + " ออกจากระบบทั้งหมด?")) return;
+    ["/sims_archived", "/sims_plain_archived", "/sims_free_archived", "/sims", "/sims_plain", "/sims_free"].
+    forEach((p) => fbD(p + "/" + toKey(serial)).catch(() => {}));
+    setSims((prev) => prev.filter((s) => s.serial !== serial));
+  };
 
-  // แยกตาม simCode
-  const groups={A:[],K:[],L:[],D:[],other:[]};
-  bulkResults.forEach(r=>{
-    if(!r.sim){groups.other.push(r);return;}
-    const code=(r.sim.simCode||"").toUpperCase();
-    if(groups[code])groups[code].push(r);else groups.other.push(r);
+  const fl = mode === "bulk" ? [] : sims.filter((s) => !q ||
+  s.serial.toLowerCase().includes(q.toLowerCase()) ||
+  s.trackingNo.toLowerCase().includes(q.toLowerCase()) ||
+  (s.phone || "").includes(q));
+
+  const netCol = (code) => ({ A: "#d97706", K: "#e53e3e", L: "#4f46e5", D: "#0891b2" })[code] || "#6b7280";
+
+  const groups = { A: [], K: [], L: [], D: [], other: [] };
+  bulkResults.forEach((r) => {
+    const code = (r.sim && r.sim.simCode || "").toUpperCase();
+    if (groups[code]) groups[code].push(r);else groups.other.push(r);
   });
 
-  return<div style={C.card}>
-    <h3 style={C.h3}>🗃️ ซิมที่พิมพ์แล้ว (Archive) — {sims.length} รายการ</h3>
+  return React.createElement("div", { style: C.card },
+  React.createElement("h3", { style: C.h3 }, "🗃️ Archive — ", sims.length, " รายการ"),
 
-    {/* Mode tabs */}
-    <div style={{display:"flex",gap:6,marginBottom:14}}>
-      {[{id:"single",label:"🔍 ค้นหารายเดียว"},{id:"bulk",label:"📋 วางข้อความ Telegram"}].map(m=>(
-        <button key={m.id} onClick={()=>{setMode(m.id);setBulkResults([]);}}
-          style={{flex:1,padding:"8px",border:"none",borderRadius:9,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",
-            background:mode===m.id?"rgba(255,255,255,0.12)":"rgba(255,255,255,0.04)",
-            color:mode===m.id?"#a5b4fc":"#8b8fa8",
-            borderBottom:mode===m.id?"2px solid #a5b4fc":"2px solid transparent"}}>{m.label}</button>
-      ))}
-    </div>
+  React.createElement("div", { style: { display: "flex", gap: 6, marginBottom: 14 } },
+  [{ id: "single", label: "🔍 ค้นหา" }, { id: "bulk", label: "📋 วางข้อความ Telegram" }].map((m) =>
+  React.createElement("button", { key: m.id, onClick: () => {setMode(m.id);setBulkResults([]);},
+    style: { flex: 1, padding: 8, border: "none", borderRadius: 9, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
+      background: mode === m.id ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.04)",
+      color: mode === m.id ? "#a5b4fc" : "#8b8fa8",
+      borderBottom: mode === m.id ? "2px solid #a5b4fc" : "2px solid transparent" } }, m.label)
+  )
+  ),
 
-    {/* Single search */}
-    {mode==="single"&&<div style={{display:"flex",gap:8,marginBottom:12}}>
-      <input style={{...C.inp,flex:1}} value={q} onChange={e=>setQ(e.target.value)}
-        placeholder="🔍 ค้นหา serial / เลขติดตาม / เบอร์..."/>
-      {q&&<button onClick={()=>setQ("")} style={{...C.btnS,padding:"10px",color:"#f87171"}}>✕</button>}
-    </div>}
+  mode === "single" && React.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 12 } },
+  React.createElement("input", { style: { ...C.inp, flex: 1 }, value: q, onChange: (e) => setQ(e.target.value),
+    placeholder: "🔍 ค้นหา serial / ซิมหมายเลข / เบอร์..." }),
+  q && React.createElement("button", { onClick: () => setQ(""), style: { ...C.btnS, color: "#f87171" } }, "✕")
+  ),
 
-    {/* Bulk paste */}
-    {mode==="bulk"&&<div>
-      <div style={{color:"#8b8fa8",fontSize:12,marginBottom:8}}>วางข้อความจาก Telegram ได้เลย รองรับหลายข้อความพร้อมกัน</div>
-      <textarea value={bulkText} onChange={e=>setBulkText(e.target.value)}
-        placeholder={"วางข้อความจาก Telegram ได้เลย หลายรายการพร้อมกัน"}
-        style={{...C.inp,height:160,resize:"vertical",fontSize:12,fontFamily:"monospace",lineHeight:1.6,marginBottom:8}}/>
-      <div style={{display:"flex",gap:8,marginBottom:12}}>
-        <span style={{color:"#8b8fa8",fontSize:12,alignSelf:"center"}}>
-          พบ {extractSerials(bulkText).length} เลขซีเรียล
-        </span>
-        <button onClick={doBulkSearch} disabled={bulkSearching||!bulkText.trim()}
-          style={{...C.btnP,flex:1,opacity:bulkSearching||!bulkText.trim()?0.4:1}}>
-          {bulkSearching?"⏳ กำลังค้นหา...":"🔍 ค้นหาทั้งหมด"}
-        </button>
-        {bulkResults.length>0&&<button onClick={()=>{setBulkResults([]);setBulkText("");}}
-          style={{...C.btnS,color:"#f87171"}}>ล้าง</button>}
-      </div>
+  mode === "bulk" && React.createElement("div", null,
+  React.createElement("div", { style: { color: "#8b8fa8", fontSize: 12, marginBottom: 8 } }, "วางข้อความจาก Telegram ได้เลย หลายรายการพร้อมกัน"),
+  React.createElement("textarea", { value: bulkText, onChange: (e) => setBulkText(e.target.value),
+    placeholder: "วางข้อความ Telegram ที่นี่...",
+    style: { ...C.inp, height: 140, resize: "vertical", fontSize: 12, fontFamily: "monospace", lineHeight: 1.6, marginBottom: 8 } }),
+  React.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 12 } },
+  React.createElement("span", { style: { color: "#8b8fa8", fontSize: 12, alignSelf: "center" } },
+  "พบ ", extractSerials(bulkText).length, " เลขซีเรียล"),
+  React.createElement("button", { onClick: doBulkSearch,
+    disabled: bulkSearching || !bulkText.trim(),
+    style: { ...C.btnP, flex: 1, opacity: bulkSearching || !bulkText.trim() ? 0.4 : 1 } },
+  bulkSearching ? "⏳ กำลังค้นหา..." : "🔍 ค้นหาทั้งหมด"),
+  bulkResults.length > 0 && React.createElement("button", {
+    onClick: () => {setBulkResults([]);setBulkText("");},
+    style: { ...C.btnS, color: "#f87171" } }, "ล้าง")
+  ),
 
-      {/* ผลลัพธ์ bulk */}
-      {bulkResults.length>0&&<div>
-        {/* สรุป */}
-        <div style={{background:"rgba(99,102,241,0.1)",border:"1px solid rgba(99,102,241,0.3)",borderRadius:12,padding:"12px 14px",marginBottom:12}}>
-          <div style={{color:"#a5b4fc",fontWeight:700,fontSize:13,marginBottom:8}}>📊 สรุปผลการค้นหา</div>
-          <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
-            {[
-              {label:"พบทั้งหมด",val:bulkResults.filter(r=>r.sim).length,color:"#6ee7b7"},
-              {label:"ไม่พบ",val:bulkResults.filter(r=>!r.sim).length,color:"#f87171"},
-              {label:"ลงทะเบียนแล้ว",val:bulkResults.filter(r=>r.sim&&r.sim.scannedByCustomer).length,color:"#a78bfa"},
-              {label:"รอดำเนินการ",val:bulkResults.filter(r=>r.sim&&!r.sim.scannedByCustomer).length,color:"#fbbf24"},
-            ].map(it=>(
-              <div key={it.label} style={{textAlign:"center",minWidth:60}}>
-                <div style={{color:it.color,fontWeight:800,fontSize:20}}>{it.val}</div>
-                <div style={{color:"#8b8fa8",fontSize:10}}>{it.label}</div>
-              </div>
-            ))}
-          </div>
-        </div>
+  bulkResults.length > 0 && React.createElement("div", null,
+  React.createElement("div", { style: { background: "rgba(99,102,241,0.1)", border: "1px solid rgba(99,102,241,0.3)", borderRadius: 12, padding: "12px 14px", marginBottom: 12 } },
+  React.createElement("div", { style: { color: "#a5b4fc", fontWeight: 700, fontSize: 13, marginBottom: 8 } }, "📊 สรุปผลการค้นหา"),
+  React.createElement("div", { style: { display: "flex", gap: 10, flexWrap: "wrap" } },
+  [{ l: "พบทั้งหมด", v: bulkResults.filter((r) => r.sim).length, c: "#6ee7b7" },
+  { l: "ไม่พบ", v: bulkResults.filter((r) => !r.sim).length, c: "#f87171" },
+  { l: "ลงทะเบียนแล้ว", v: bulkResults.filter((r) => r.sim && r.sim.scannedByCustomer).length, c: "#a78bfa" },
+  { l: "รอดำเนินการ", v: bulkResults.filter((r) => r.sim && !r.sim.scannedByCustomer).length, c: "#fbbf24" }].
+  map((it) => React.createElement("div", { key: it.l, style: { textAlign: "center", minWidth: 60 } },
+  React.createElement("div", { style: { color: it.c, fontWeight: 800, fontSize: 20 } }, it.v),
+  React.createElement("div", { style: { color: "#8b8fa8", fontSize: 10 } }, it.l)
+  ))
+  )
+  ),
 
-        {/* ปุ่มย้ายทั้งหมด */}
-        {bulkResults.some(r=>r.sim&&!r.sim.scannedByCustomer)&&
-          <button onClick={markAllScanned}
-            style={{...C.btnP,width:"100%",marginBottom:12,background:"linear-gradient(135deg,#059669,#10b981)"}}>
-            ✅ ย้ายทั้งหมดเป็น ลงทะเบียนแล้ว ({bulkResults.filter(r=>r.sim&&!r.sim.scannedByCustomer).length} รายการ)
-          </button>}
+  bulkResults.some((r) => r.sim && !r.sim.scannedByCustomer) &&
+  React.createElement("button", { onClick: markAll,
+    style: { ...C.btnP, width: "100%", marginBottom: 12, background: "linear-gradient(135deg,#059669,#10b981)" } },
+  "✅ ย้ายทั้งหมดเป็นลงทะเบียนแล้ว (" + bulkResults.filter((r) => r.sim && !r.sim.scannedByCustomer).length + " รายการ)"),
 
-        {/* แยกตามเครือข่าย */}
-        {[
-          {key:"A",label:"AIS",color:"#d97706",emoji:"🟡"},
-          {key:"K",label:"True (K)",color:"#e53e3e",emoji:"🔴"},
-          {key:"L",label:"True (L)",color:"#4f46e5",emoji:"🟣"},
-          {key:"D",label:"DTAC",color:"#0891b2",emoji:"🔵"},
-          {key:"other",label:"ไม่ระบุเครือข่าย",color:"#6b7280",emoji:"⚪"},
-        ].filter(g=>groups[g.key]&&groups[g.key].length>0).map(g=>(
-          <div key={g.key} style={{marginBottom:12}}>
-            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
-              <span style={{background:g.color,color:"white",fontSize:11,fontWeight:800,borderRadius:6,padding:"2px 10px"}}>{g.emoji} {g.label}</span>
-              <span style={{color:"#8b8fa8",fontSize:12}}>{groups[g.key].length} รายการ</span>
-            </div>
-            {groups[g.key].map(r=>(
-              <div key={r.serial} style={{background:r.sim?"rgba(255,255,255,0.03)":"rgba(239,68,68,0.06)",
-                border:"1px solid "+(r.sim?"rgba(255,255,255,0.07)":"rgba(239,68,68,0.2)"),
-                borderRadius:10,padding:"10px 14px",marginBottom:6,display:"flex",alignItems:"center",gap:10}}>
-                <div style={{flex:1,minWidth:0}}>
-                  {r.sim
-                    ?<>
-                      <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2}}>
-                        <span style={{color:"#a78bfa",fontWeight:700,fontSize:12}}>ซิมหมายเลข: {r.sim.trackingNo}</span>
-                        {r.sim.scannedByCustomer&&<span style={{color:"#6ee7b7",fontSize:10,fontWeight:700}}>✅ ลงทะเบียนแล้ว</span>}
-                      </div>
-                      <div style={{color:"#e2e8f0",fontFamily:"monospace",fontSize:11}}>{r.serial}</div>
-                      {r.sim.phone&&<div style={{color:"#6ee7b7",fontSize:11}}>📞 {r.sim.phone}</div>}
-                    </>
-                    :<div style={{color:"#f87171",fontSize:12}}>❌ ไม่พบ: {r.serial}</div>
-                  }
-                </div>
-                {r.sim&&!r.sim.scannedByCustomer&&
-                  <button onClick={()=>markScanned(r.serial)}
-                    style={{...C.btnP,fontSize:11,padding:"6px 12px",whiteSpace:"nowrap",flexShrink:0}}>
-                    ✅ ลงทะเบียนแล้ว
-                  </button>}
-              </div>
-            ))}
-          </div>
-        ))}
-      </div>}
-    </div>}
+  [{ key: "A", label: "AIS", col: "#d97706" }, { key: "K", label: "True K", col: "#e53e3e" },
+  { key: "L", label: "True L", col: "#4f46e5" }, { key: "D", label: "DTAC", col: "#0891b2" },
+  { key: "other", label: "ไม่ระบุ", col: "#6b7280" }].
+  filter((g) => groups[g.key] && groups[g.key].length > 0).map((g) =>
+  React.createElement("div", { key: g.key, style: { marginBottom: 12 } },
+  React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 6 } },
+  React.createElement("span", { style: { background: g.col, color: "white", fontSize: 11, fontWeight: 800, borderRadius: 6, padding: "2px 10px" } }, g.label),
+  React.createElement("span", { style: { color: "#8b8fa8", fontSize: 12 } }, groups[g.key].length, " รายการ")
+  ),
+  groups[g.key].map((r) =>
+  React.createElement("div", { key: r.serial, style: {
+      background: r.sim ? "rgba(255,255,255,0.03)" : "rgba(239,68,68,0.06)",
+      border: "1px solid " + (r.sim ? "rgba(255,255,255,0.07)" : "rgba(239,68,68,0.2)"),
+      borderRadius: 10, padding: "10px 14px", marginBottom: 6, display: "flex", alignItems: "center", gap: 10 } },
+  React.createElement("div", { style: { flex: 1, minWidth: 0 } },
+  r.sim ?
+  React.createElement("div", null,
+  React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 6, marginBottom: 2 } },
+  React.createElement("span", { style: { color: "#a78bfa", fontWeight: 700, fontSize: 12 } }, "ซิมหมายเลข: ", r.sim.trackingNo),
+  r.sim.scannedByCustomer && React.createElement("span", { style: { color: "#6ee7b7", fontSize: 10, fontWeight: 700 } }, "✅ ลงทะเบียนแล้ว")
+  ),
+  React.createElement("div", { style: { color: "#e2e8f0", fontFamily: "monospace", fontSize: 11 } }, r.serial),
+  r.sim.phone && React.createElement("div", { style: { color: "#6ee7b7", fontSize: 11 } }, "📞 ", r.sim.phone)
+  ) :
+  React.createElement("div", { style: { color: "#f87171", fontSize: 12 } }, "❌ ไม่พบ: ", r.serial)
+  ),
+  r.sim && !r.sim.scannedByCustomer &&
+  React.createElement("button", { onClick: () => markOne(r.serial, r.sim._path),
+    style: { ...C.btnP, fontSize: 11, padding: "6px 12px", whiteSpace: "nowrap", flexShrink: 0 } },
+  "✅ ลงทะเบียนแล้ว")
+  )
+  )
+  )
+  )
+  )
+  ),
 
-    {loading?<div style={{textAlign:"center",padding:32,color:"#8b8fa8"}}>⏳ กำลังโหลด...</div>:
-    fl.length===0?<div style={{textAlign:"center",padding:32,color:"#8b8fa8"}}>📭 ยังไม่มีซิมใน archive</div>:
-    <div>{fl.map(s=>(
-      <div key={s.serial} style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:10,padding:"10px 14px",marginBottom:8}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
-          <div style={{flex:1,minWidth:0}}>
-            <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2}}>
-              {s.simCode&&<span style={{background:netColor(s.simCode),color:"white",fontSize:9,fontWeight:800,borderRadius:3,padding:"1px 5px"}}>{s.simCode}</span>}
-              <span style={{color:"#a78bfa",fontWeight:700,fontSize:12}}>ซิมหมายเลข: {s.trackingNo}</span>
-            </div>
-            <div style={{color:"#e2e8f0",fontFamily:"monospace",fontSize:11,marginBottom:2}}>{s.serial}</div>
-            {s.phone&&<div style={{color:"#6ee7b7",fontSize:11}}>📞 {s.phone}</div>}
-            <div style={{color:"#8b8fa8",fontSize:10,marginTop:2}}>
-              {s.scannedByCustomer
-                ?<span style={{color:"#6ee7b7"}}>✅ ลูกค้าสแกนแล้ว {s.scannedAt?new Date(s.scannedAt).toLocaleString("th-TH"):""}</span>
-                :<span style={{color:"#f59e0b"}}>⏳ รอสแกน</span>}
-            </div>
-          </div>
-          <div style={{display:"flex",flexDirection:"column",gap:5,flexShrink:0}}>
-            {!s.scannedByCustomer&&<button
-              onClick={()=>{
-                if(!confirm("ย้าย "+s.trackingNo+" ไปลงทะเบียนแล้ว?"))return;
-                const now=Date.now();
-                // อัปเดตทุก path ที่อาจเก็บซิมนี้อยู่
-                [DB.arc,"/sims_plain_archived","/sims_free_archived","/sims","/sims_plain","/sims_free"].forEach(p=>{
-                  fbP(p+"/"+toKey(s.serial),{scannedByCustomer:true,scannedAt:now}).catch(()=>{});
-                });
-                setSims(prev=>prev.map(x=>x.serial===s.serial?{...x,scannedByCustomer:true,scannedAt:now}:x));
-              }}
-              style={{...C.btnP,fontSize:11,padding:"5px 10px",whiteSpace:"nowrap"}}>✅ ลงทะเบียนแล้ว</button>}
-            <button
-              onClick={()=>{
-                if(!confirm("ลบซิม "+s.trackingNo+" ออกจากระบบทั้งหมด?"))return;
-                // ลบออกจากทุก path
-                [DB.arc,"/sims_plain_archived","/sims_free_archived","/sims","/sims_plain","/sims_free"].forEach(p=>{
-                  fbD(p+"/"+toKey(s.serial)).catch(()=>{});
-                });
-                setSims(prev=>prev.filter(x=>x.serial!==s.serial));
-              }}
-              style={{...C.btnD,fontSize:11,padding:"5px 10px"}}>🗑 ลบ</button>
-          </div>
-        </div>
-      </div>
-    ))}</div>}
-  </div>;
+  loading && mode === "single" ?
+  React.createElement("div", { style: { textAlign: "center", padding: 32, color: "#8b8fa8" } }, "⏳ กำลังโหลด...") :
+  mode === "single" && fl.length === 0 ?
+  React.createElement("div", { style: { textAlign: "center", padding: 32, color: "#8b8fa8" } }, "📭 ไม่พบรายการ") :
+  mode === "single" && React.createElement("div", null, fl.map((s) =>
+  React.createElement("div", { key: s.serial, style: { background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 10, padding: "10px 14px", marginBottom: 8 } },
+  React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 } },
+  React.createElement("div", { style: { flex: 1, minWidth: 0 } },
+  React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 6, marginBottom: 2 } },
+  s.simCode && React.createElement("span", { style: { background: netCol(s.simCode), color: "white", fontSize: 9, fontWeight: 800, borderRadius: 3, padding: "1px 5px" } }, s.simCode),
+  React.createElement("span", { style: { color: "#a78bfa", fontWeight: 700, fontSize: 12 } }, "ซิมหมายเลข: ", s.trackingNo)
+  ),
+  React.createElement("div", { style: { color: "#e2e8f0", fontFamily: "monospace", fontSize: 11, marginBottom: 2 } }, s.serial),
+  s.phone && React.createElement("div", { style: { color: "#6ee7b7", fontSize: 11 } }, "📞 ", s.phone),
+  React.createElement("div", { style: { color: "#8b8fa8", fontSize: 10, marginTop: 2 } },
+  s.scannedByCustomer ?
+  React.createElement("span", { style: { color: "#6ee7b7" } }, "✅ ลูกค้าสแกนแล้ว") :
+  React.createElement("span", { style: { color: "#f59e0b" } }, "⏳ รอสแกน")
+  )
+  ),
+  React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 5, flexShrink: 0 } },
+  !s.scannedByCustomer && React.createElement("button", {
+    onClick: () => {
+      if (!window.confirm("ย้าย " + s.trackingNo + " ไปลงทะเบียนแล้ว?")) return;
+      markOne(s.serial, null);
+    }, style: { ...C.btnP, fontSize: 11, padding: "5px 10px", whiteSpace: "nowrap" } }, "✅ ลงทะเบียนแล้ว"),
+  React.createElement("button", { onClick: () => delOne(s.serial),
+    style: { ...C.btnD, fontSize: 11, padding: "5px 10px" } }, "🗑 ลบ")
+  )
+  )
+  )
+  ))
+  );
 }
 
-function App(){
-  const [sims,setSims]=useState([]);
-  const [bot,setBot]=useState("");
-  const [chat,setChat]=useState("");
-  const [tab,setTab]=useState("scanner");
-  const [toast,setToast]=useState(null);
-  const [modal,setModal]=useState(null);
-  const [loading,setLoading]=useState(true);
+function App() {
+  const [st, setSt] = useState("plain");
+  const [pSims, setPSims] = useState([]);
+  const [fSims, setFSims] = useState([]);
+  const [bot, setBot] = useState("");
+  const [chat, setChat] = useState("");
+  const [tab, setTab] = useState("scanner");
+  const [toast, setToast] = useState(null);
+  const [modal, setModal] = useState(null);
+  const [loading, setLoading] = useState(true);
 
-  useEffect(()=>{
-    const timeout=setTimeout(()=>setLoading(false),8000);
-    loadAll().then(d=>{clearTimeout(timeout);setSims(d.sims||[]);setBot(d.bot);setChat(d.chat);setLoading(false);})
-      .catch(()=>{clearTimeout(timeout);setLoading(false);});
-  },[]);
+  const sims = st === "plain" ? pSims : fSims;
+  const setSims = (fn) => {if (st === "plain") setPSims(fn);else setFSims(fn);};
 
-  // Auto-poll Telegram getUpdates ทุก 10 วินาที — ตรวจจับข้อความที่ลูกค้าสแกน QR
-  const tgOffsetRef=useRef(parseInt(lsG("tg_offset")||"0"));
-  const botRef=useRef(bot);
-  const chatRef=useRef(chat);
-  useEffect(()=>{botRef.current=bot;},[bot]);
-  useEffect(()=>{chatRef.current=chat;},[chat]);
+  useEffect(() => {
+    loadAll().then((d) => {setPSims(d.plain || []);setFSims(d.free || []);setBot(d.bot);setChat(d.chat);setLoading(false);});
+  }, []);
 
-  const applyScanned=(serial)=>{
-    const now=Date.now();
-    let found=null;
-    setSims(prev=>{
-      let hit=false;
-      const next=prev.map(s=>{
-        if(s.serial!==serial||s.scannedByCustomer)return s;
-        hit=true;
-        found={...s,scannedByCustomer:true,scannedAt:now};
-        updFB(serial,{scannedByCustomer:true,scannedAt:now});
-        return{...s,scannedByCustomer:true,scannedAt:now};
-      });
-      if(hit)lsS(DB.ls,JSON.stringify(next));
-      return hit?next:prev;
-    });
-    return found;
+  const t3 = (msg, type) => {setToast({ msg, type: "ok", ...(type ? { type } : {}) });setTimeout(() => setToast(null), 3000);};
+
+  const addSim = (serial, rsv, phone, code) => {
+    if (sims.find((s) => s.serial === serial)) {t3("⚠️ " + serial + " มีอยู่แล้ว", "warn");return;}
+    const raw = rsv || genNo(new Set(sims.map((s) => s.trackingNo)));
+    const trk = code ? code + raw : raw;
+    const ns = { serial, trackingNo: trk, phone: phone || "", simCode: code || "", simType: st, scannedByCustomer: false, scannedAt: null, createdAt: Date.now(), printed: false };
+    setSims((prev) => {const u = [ns, ...prev];saveT(u, st);addFB(ns, st);return u;});
+    t3("✅ เพิ่มซิม (เลขติดตาม: " + trk + ")");
   };
 
-  useEffect(()=>{
-    if(!bot)return;
-    const poll=async()=>{
-      try{
-        const offset=tgOffsetRef.current;
-        const res=await fetch("https://api.telegram.org/bot"+botRef.current+"/getUpdates?timeout=0&offset="+offset);
-        const data=await res.json();
-        if(!data.ok||!data.result&&data.result.length)return;
-        let maxId=offset;
-        for(const upd of data.result){
-          if(upd.update_id>=maxId)maxId=upd.update_id+1;
-          const txt=upd.message&&upd.message.text||upd.channel_post&&upd.channel_post.text||"";
-          const m=txt.match(/เลขซีเรียลซิม[: \t]*([^\s\n]+)/)||txt.match(/serial[: ]+([^\s\n]+)/i)||txt.match(/s=([^&\s]+)/);
-          if(m&&m[1]){
-            const serial=m[1].trim();
-            setTimeout(()=>{
-              const s=applyScanned(serial);
-              if(s){
-                setToast({msg:"🔔 ลูกค้าสแกนซิมหมายเลข "+s.trackingNo+" แล้ว ✅",type:"ok"});
-                setTimeout(()=>setToast(null),6000);
-              }
-            },100);
-          }
-        }
-        if(maxId!==offset){
-          tgOffsetRef.current=maxId;
-          lsS("tg_offset",String(maxId));
-        }
-      }catch(e){}
-    };
-    poll();
-    const iv=setInterval(poll,10000);
-    return()=>clearInterval(iv);
-  },[bot]);
-
-  const t3=(msg,type)=>{setToast({msg,type:"ok",...(type?{type}:{})});setTimeout(()=>setToast(null),3000);};
-
-  const addSim=(serial,rsv,phone,code)=>{
-    if(sims.find(s=>s.serial===serial)){t3("⚠️ "+serial+" มีอยู่แล้ว","warn");return;}
-    const raw=rsv||genNo(new Set(sims.map(s=>s.trackingNo)));
-    const trk=code?code+raw:raw;
-    const ns={serial,trackingNo:trk,phone:phone||"",simCode:code||"",scannedByCustomer:false,scannedAt:null,createdAt:Date.now(),printed:false};
-    setSims(prev=>{const u=[ns,...prev];lsS(DB.ls,JSON.stringify(u));addFB(ns);return u;});
-    t3("✅ เพิ่มซิม (เลขติดตาม: "+trk+")");
+  const delSim = (serial) => {
+    if (!confirm("ลบซิม " + serial + " ?")) return;
+    setSims((prev) => {const u = prev.filter((s) => s.serial !== serial);saveT(u, st);delFB(serial, st);return u;});
+    t3("🗑️ ลบแล้ว", "warn");
   };
 
-  const delSim=serial=>{
-    if(!confirm("ลบซิม "+serial+" ?"))return;
-    setSims(prev=>{const u=prev.filter(s=>s.serial!==serial);saveAll(u);delFB(serial);return u;});
-    t3("🗑️ ลบแล้ว","warn");
+  const updPhone = (serial, phone) => {
+    setSims((prev) => {const u = prev.map((s) => s.serial === serial ? { ...s, phone } : s);saveT(u, st);updFB(serial, { phone }, st);return u;});
+    t3(phone ? "✅ บันทึกเบอร์ " + phone : "✅ ลบเบอร์แล้ว");
   };
 
-  const updPhone=(serial,phone)=>{
-    setSims(prev=>{const u=prev.map(s=>s.serial===serial?{...s,phone}:s);saveAll(u);updFB(serial,{phone});return u;});
-    t3(phone?"✅ บันทึกเบอร์ "+phone:"✅ ลบเบอร์แล้ว");
-  };
-
-  const markP=serials=>{
-    setSims(prev=>{
-      const now=Date.now();
-      const toArc=prev.filter(s=>serials.includes(s.serial));
-      toArc.forEach(s=>{arcFB({...s,printed:true,printedAt:now});delFB(s.serial);});
-      const u=prev.filter(s=>!serials.includes(s.serial));
-      lsS(DB.ls,JSON.stringify(u));
+  const markP = (serials) => {
+    setSims((prev) => {
+      const u = prev.map((s) => serials.includes(s.serial) ? { ...s, printed: true } : s);
+      lsS(TYPES[st].ls, JSON.stringify(u));
+      setTimeout(() => serials.forEach((s) => updFB(s, { printed: true }, st)), 100);
       return u;
     });
-    t3("✅ พิมพ์แล้ว — ย้ายซิม "+serials.length+" รายการออกจากระบบ (ค้นหาได้ที่แท็บ 🗃️)");
+    t3("✅ ย้ายไปพิมพ์แล้ว " + serials.length + " รายการ");
   };
 
-  const unmarkP=async(serial)=>{
-    const found=await searchArc(serial);
-    if(found){
-      const restored={...found,printed:false};delete restored._archived;
-      setSims(prev=>{
-        if(prev.find(s=>s.serial===serial))return prev;
-        const u=[restored,...prev];
-        lsS(DB.ls,JSON.stringify(u));
-        addFB(restored);
-        fbD(DB.arc+"/"+toKey(serial)).catch(()=>{});
-        return u;
-      });
-      t3("↩️ ดึงซิมกลับจาก archive แล้ว");
-    }else{t3("⚠️ ไม่พบซิมใน archive","warn");}
+  const unmarkP = (serial) => {
+    setSims((prev) => {const u = prev.map((s) => s.serial === serial ? { ...s, printed: false } : s);saveT(u, st);updFB(serial, { printed: false }, st);return u;});
+    t3("↩️ ย้ายกลับยังไม่พิมพ์");
   };
 
-  const markSc=serial=>{
-    const now=Date.now();
-    setSims(prev=>prev.map(s=>{
-      if(s.serial!==serial)return s;
-      tgSend(bot,chat,"🔔 ลูกค้าสแกน QR Code แล้ว!\n📋 เลขซีเรียลซิม: "+s.serial+"\n📞 เบอร์โทร: "+(s.phone||"รับหลังลงทะเบียนซิม")+"\n🔢 เลขติดตาม: "+s.trackingNo+"\n⏰ เวลา: "+new Date(now).toLocaleString("th-TH")+"\n✅ ระบบอัปเดตสถานะอัตโนมัติแล้ว");
-      updFB(s.serial,{scannedByCustomer:true,scannedAt:now});
-      return{...s,scannedByCustomer:true,scannedAt:now};
+  const markSc = (serial) => {
+    const now = Date.now();
+    setSims((prev) => prev.map((s) => {
+      if (s.serial !== serial) return s;
+      tgSend(bot, chat, "🔔 ลูกค้าสแกน QR Code แล้ว!\n📋 เลขซีเรียลซิม: " + s.serial + "\n📞 เบอร์โทร: " + (s.phone || "รับหลังลงทะเบียนซิม") + "\n🔢 เลขติดตาม: " + s.trackingNo + "\n⏰ เวลา: " + new Date(now).toLocaleString("th-TH") + "\n\n✅ กรุณาอัปเดตสถานะในแอพ");
+      updFB(s.serial, { scannedByCustomer: true, scannedAt: now }, st);
+      return { ...s, scannedByCustomer: true, scannedAt: now };
     }));
     t3("✅ อัปเดตสถานะแล้ว");
   };
 
+  const pc = sims.filter((s) => !s.scannedByCustomer).length;
+  const sc = sims.filter((s) => s.scannedByCustomer).length;
 
-  const pc=sims.filter(s=>!s.scannedByCustomer).length;
-  const sc=sims.filter(s=>s.scannedByCustomer).length;
+  const tabs = [
+  { id: "scanner", label: "📷 ยิงซิม" },
+  { id: "qr", label: "🔲 QR Code (" + sims.length + ")" },
+  { id: "pending", label: "⏳ รอสแกน (" + pc + ")" },
+  { id: "scanned", label: "📋 ลงทะเบียนแล้ว (" + sc + ")" },
+  { id: "list", label: "📋 รายการ" },
+  { id: "summary", label: "📊 สรุป" },
+  { id: "settings", label: "⚙️ ตั้งค่า" }, { id: "archived", label: "🗃️ Archive" }];
 
-  const tabs=[
-    {id:"scanner",label:"📷 ยิงซิม"},
-    {id:"qr",label:"🔲 QR Code ("+sims.length+")"},
-    {id:"archived",label:"🗃️ Archive"},
-    {id:"pending",label:"⏳ รอสแกน ("+pc+")"},
-    {id:"scanned",label:"📋 ลงทะเบียนแล้ว ("+sc+")"},
-    {id:"list",label:"📋 รายการ"},
-    {id:"summary",label:"📊 สรุป"},
-    {id:"settings",label:"⚙️ ตั้งค่า"},
-  ];
 
-  if(loading)return(
-    <div style={{minHeight:"100vh",background:"linear-gradient(160deg,#0a0a1a,#0f172a,#1a0a2e)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",color:"white",fontFamily:"sans-serif",gap:16}}>
-      <div style={{fontSize:52}}>📶</div>
-      <div style={{fontSize:18,fontWeight:700}}>SIM Tracker</div>
-      <div style={{color:"#8b8fa8",fontSize:13}}>กำลังโหลดข้อมูลจาก Firebase...</div>
-      <div style={{width:36,height:36,border:"3px solid rgba(255,255,255,0.1)",borderTop:"3px solid #a78bfa",borderRadius:"50%",animation:"spin 1s linear infinite"}}/>
-    </div>
-  );
+  if (loading) return (/*#__PURE__*/
+    React.createElement("div", { style: { minHeight: "100vh", background: "linear-gradient(160deg,#0a0a1a,#0f172a,#1a0a2e)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "white", fontFamily: "sans-serif", gap: 16 } }, /*#__PURE__*/
+    React.createElement("div", { style: { fontSize: 52 } }, "📶"), /*#__PURE__*/
+    React.createElement("div", { style: { fontSize: 18, fontWeight: 700 } }, "SIM Tracker"), /*#__PURE__*/
+    React.createElement("div", { style: { color: "#8b8fa8", fontSize: 13 } }, "กำลังโหลดข้อมูลจาก Firebase..."), /*#__PURE__*/
+    React.createElement("div", { style: { width: 36, height: 36, border: "3px solid rgba(255,255,255,0.1)", borderTop: "3px solid #a78bfa", borderRadius: "50%", animation: "spin 1s linear infinite" } })
+    ));
 
-  return(
-    <div style={{minHeight:"100vh"}}>
-      {toast&&<div style={{position:"fixed",top:20,right:16,zIndex:9999,background:toast.type==="ok"?"#059669":"#d97706",color:"white",padding:"10px 18px",borderRadius:12,fontWeight:600,fontSize:14,boxShadow:"0 4px 20px rgba(0,0,0,0.4)"}}>{toast.msg}</div>}
-      {modal&&<QRModal sim={modal} bot={bot} chat={chat} onClose={()=>setModal(null)}/>}
 
-      <div style={{background:"rgba(15,15,40,0.95)",backdropFilter:"blur(20px)",borderBottom:"1px solid rgba(255,255,255,0.08)",padding:"12px 16px",display:"flex",alignItems:"center",gap:12,position:"sticky",top:0,zIndex:100}}>
-        <div style={{width:40,height:40,background:"linear-gradient(135deg,#4f46e5,#7c3aed)",borderRadius:12,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>📶</div>
-        <div style={{flex:1}}><div style={{color:"white",fontWeight:800,fontSize:16}}>SIM Tracker</div><div style={{color:"#8b8fa8",fontSize:11,display:"flex",alignItems:"center",gap:4}}><span style={{width:6,height:6,borderRadius:"50%",background:"#6ee7b7",display:"inline-block",boxShadow:"0 0 6px #6ee7b7"}}></span>ซิงค์อัตโนมัติทุก 15 วิ</div></div>
-        <div style={{textAlign:"center"}}><div style={{color:"#a78bfa",fontWeight:800,fontSize:20}}>{sims.length}</div><div style={{color:"#8b8fa8",fontSize:10}}>ซิมทั้งหมด</div></div>
-        <div style={{textAlign:"center"}}><div style={{color:"#6ee7b7",fontWeight:800,fontSize:20}}>{sims.filter(s=>s.scannedByCustomer&&new Date(s.scannedAt||0).toISOString().slice(0,10)===todayS()).length}</div><div style={{color:"#8b8fa8",fontSize:10}}>สแกนวันนี้</div></div>
-      </div>
+  return (/*#__PURE__*/
+    React.createElement("div", { style: { minHeight: "100vh" } },
+    toast && /*#__PURE__*/React.createElement("div", { style: { position: "fixed", top: 20, right: 16, zIndex: 9999, background: toast.type === "ok" ? "#059669" : "#d97706", color: "white", padding: "10px 18px", borderRadius: 12, fontWeight: 600, fontSize: 14, boxShadow: "0 4px 20px rgba(0,0,0,0.4)" } }, toast.msg),
+    modal && /*#__PURE__*/React.createElement(QRModal, { sim: modal, bot: bot, chat: chat, onClose: () => setModal(null) }), /*#__PURE__*/
 
-      <div style={{display:"flex",overflowX:"auto",borderBottom:"1px solid rgba(255,255,255,0.08)",background:"rgba(15,15,40,0.6)"}}>
-        {tabs.map(t=>(
-          <button key={t.id} onClick={()=>setTab(t.id)}
-            style={{padding:"12px 14px",border:"none",borderBottom:tab===t.id?"2px solid #a78bfa":"2px solid transparent",background:"transparent",color:tab===t.id?"#a78bfa":"#64748b",cursor:"pointer",fontFamily:"inherit",fontWeight:700,fontSize:12,whiteSpace:"nowrap"}}>
-            {t.label}
-          </button>
-        ))}
-      </div>
+    React.createElement("div", { style: { background: "rgba(15,15,40,0.95)", backdropFilter: "blur(20px)", borderBottom: "1px solid rgba(255,255,255,0.08)", padding: "12px 16px", display: "flex", alignItems: "center", gap: 12, position: "sticky", top: 0, zIndex: 100 } }, /*#__PURE__*/
+    React.createElement("div", { style: { width: 40, height: 40, background: "linear-gradient(135deg,#4f46e5,#7c3aed)", borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 } }, "📶"), /*#__PURE__*/
+    React.createElement("div", { style: { flex: 1 } }, /*#__PURE__*/React.createElement("div", { style: { color: "white", fontWeight: 800, fontSize: 16 } }, "SIM Tracker"), /*#__PURE__*/React.createElement("div", { style: { color: "#8b8fa8", fontSize: 11 } }, "ระบบติดตามการเปิดใช้งานซิม")), /*#__PURE__*/
+    React.createElement("div", { style: { textAlign: "center" } }, /*#__PURE__*/React.createElement("div", { style: { color: "#a78bfa", fontWeight: 800, fontSize: 20 } }, sims.length), /*#__PURE__*/React.createElement("div", { style: { color: "#8b8fa8", fontSize: 10 } }, "ซิมทั้งหมด")), /*#__PURE__*/
+    React.createElement("div", { style: { textAlign: "center" } }, /*#__PURE__*/React.createElement("div", { style: { color: "#6ee7b7", fontWeight: 800, fontSize: 20 } }, sims.filter((s) => s.scannedByCustomer && new Date(s.scannedAt || 0).toISOString().slice(0, 10) === todayS()).length), /*#__PURE__*/React.createElement("div", { style: { color: "#8b8fa8", fontSize: 10 } }, "สแกนวันนี้"))
+    ), /*#__PURE__*/
 
-      <div style={{padding:"0 0 80px"}}>
-        {tab==="scanner"&&<Scanner onScan={addSim} sims={sims}/>}
-        {tab==="qr"&&<QRMain sims={sims} bot={bot} chat={chat} onMarkPrinted={markP} onUnmarkPrinted={unmarkP} onDeleteSim={delSim} onPreview={s=>setModal(s)}/>}
-        {tab==="archived"&&<ArchivedTab/>}
-        {tab==="pending"&&<PendingTab sims={sims} onMarkScanned={markSc} onPreview={s=>setModal(s)}/>}
-        {tab==="scanned"&&<ScannedTab sims={sims}/>}
-        {tab==="list"&&<SimList sims={sims} onDelete={delSim} onUpdatePhone={updPhone}/>}
-        {tab==="summary"&&<Summary sims={sims} bot={bot} chat={chat} />}
-        {tab==="settings"&&<Settings bot={bot} chat={chat} setBot={setBot} setChat={setChat} onSave={()=>t3("✅ บันทึกแล้ว")}/>}
-      </div>
-    </div>
-  );
+    React.createElement("div", { style: { background: "rgba(0,0,0,0.3)", borderBottom: "1px solid rgba(255,255,255,0.08)", padding: "8px 12px", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" } }, /*#__PURE__*/
+    React.createElement("span", { style: { color: "#94a3b8", fontSize: 12, fontWeight: 600 } }, "ประเภทซิม:"),
+    Object.entries(TYPES).map(([key, cfg]) => /*#__PURE__*/
+    React.createElement("button", { key: key, onClick: () => {setSt(key);setTab("scanner");},
+      style: { padding: "7px 18px", border: "none", borderRadius: 20, cursor: "pointer", fontFamily: "inherit", fontWeight: 700, fontSize: 13,
+        background: st === key ? cfg.color : "rgba(255,255,255,0.08)",
+        color: st === key ? "white" : "#8b8fa8",
+        outline: st === key ? "2px solid " + cfg.color : "none" } },
+    cfg.emoji, " ", cfg.label,
+    st === key && /*#__PURE__*/React.createElement("span", { style: { marginLeft: 6, background: "rgba(255,255,255,0.2)", borderRadius: 99, padding: "1px 7px", fontSize: 11 } }, sims.length)
+    )
+    )
+    ), /*#__PURE__*/
+
+    React.createElement("div", { style: { display: "flex", overflowX: "auto", borderBottom: "1px solid rgba(255,255,255,0.08)", background: "rgba(15,15,40,0.6)" } },
+    tabs.map((t) => /*#__PURE__*/
+    React.createElement("button", { key: t.id, onClick: () => setTab(t.id),
+      style: { padding: "12px 14px", border: "none", borderBottom: tab === t.id ? "2px solid #a78bfa" : "2px solid transparent", background: "transparent", color: tab === t.id ? "#a78bfa" : "#64748b", cursor: "pointer", fontFamily: "inherit", fontWeight: 700, fontSize: 12, whiteSpace: "nowrap" } },
+    t.label
+    )
+    )
+    ), /*#__PURE__*/
+
+    React.createElement("div", { style: { padding: "0 0 80px" } },
+    tab === "scanner" && /*#__PURE__*/React.createElement(Scanner, { onScan: addSim, sims: sims }),
+    tab === "qr" && /*#__PURE__*/React.createElement(QRMain, { sims: sims, bot: bot, chat: chat, onMarkPrinted: markP, onUnmarkPrinted: unmarkP, onDeleteSim: delSim, onPreview: (s) => setModal(s) }),
+    tab === "pending" && /*#__PURE__*/React.createElement(PendingTab, { sims: sims, onMarkScanned: markSc, onPreview: (s) => setModal(s) }),
+    tab === "scanned" && /*#__PURE__*/React.createElement(ScannedTab, { sims: sims }),
+    tab === "list" && /*#__PURE__*/React.createElement(SimList, { sims: sims, onDelete: delSim, onUpdatePhone: updPhone }),
+    tab === "summary" && /*#__PURE__*/React.createElement(Summary, { sims: sims, bot: bot, chat: chat, simType: st }),
+    tab === "archived" && React.createElement(ArchivedTab, null),
+    tab === "settings" && /*#__PURE__*/React.createElement(Settings, { bot: bot, chat: chat, setBot: setBot, setChat: setChat, onSave: () => t3("✅ บันทึกแล้ว") })
+    )
+    ));
+
 }
 
-const root=ReactDOM.createRoot(document.getElementById("root"));
-root.render(<App/>);
+try {
+  window.__appMounted = true;
+  const root = ReactDOM.createRoot(document.getElementById("root"));
+  root.render(/*#__PURE__*/React.createElement(App, null));
+} catch (e) {
+  document.getElementById("root").innerHTML = '<div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;color:white;font-family:sans-serif;gap:12px;padding:24px"><div style="font-size:48px">⚠️</div><div style="font-size:18px;font-weight:700">เกิดข้อผิดพลาด</div><div style="color:#f87171;font-size:13px;text-align:center;max-width:320px;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:10px;padding:12px">' + e.message + '</div><button onclick="location.reload()" style="padding:10px 24px;background:#4f46e5;color:white;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">🔄 โหลดใหม่</button></div>';
+}
 </script>
 </body>
 </html>
