@@ -793,15 +793,7 @@ function App(){
     loadAll().then(d=>{setPSims(d.plain||[]);setFSims(d.free||[]);setBot(d.bot);setChat(d.chat);setLoading(false);});
   },[]);
 
-  // Realtime polling — ดึงข้อมูลจาก Firebase ทุก 30 วินาที
-  useEffect(()=>{
-    const poll=async()=>{
-      try{
-        const paths=["/sims_plain","/sims","/sims_free"];
-        const [dp,dl,df]=await Promise.all(paths.map(p=>
-          Promise.race([fbG(p),new Promise((_,r)=>setTimeout(()=>r(null),5000))]).catch(()=>null)
-        ));
-  // ฟังก์ชัน fetch ทุก path แล้ว update state ตรง
+  // ฟังก์ชัน fetch ทุก path แล้ว update state
   const fetchAll=useCallback(async()=>{
     try{
       const [dp,dl,df]=await Promise.all([
@@ -809,7 +801,6 @@ function App(){
         Promise.race([fbG("/sims"),new Promise((_,r)=>setTimeout(()=>r(null),6000))]).catch(()=>null),
         Promise.race([fbG("/sims_free"),new Promise((_,r)=>setTimeout(()=>r(null),6000))]).catch(()=>null),
       ]);
-      // รวม plain + legacy
       const mp={};
       [dp,dl].forEach(d=>{if(d&&typeof d==="object"&&!d.error)Object.values(d).filter(s=>s&&s.serial).forEach(s=>{mp[s.serial]={...mp[s.serial],...s};});});
       const pa=Object.values(mp);
@@ -820,7 +811,6 @@ function App(){
         lsS(TYPES.plain.ls,JSON.stringify(next));
         return next;
       });
-      // free
       if(df&&typeof df==="object"&&!df.error){
         const fa=Object.values(df).filter(s=>s&&s.serial);
         if(fa.length)setFSims(old=>{
