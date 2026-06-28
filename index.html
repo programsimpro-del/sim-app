@@ -225,7 +225,7 @@ function Scanner({onScan,sims}){
             </button>
           ))}
         </div>
-      </div>
+      
 
       <div style={{background:"rgba(16,185,129,0.06)",border:"1px solid rgba(16,185,129,0.2)",borderRadius:12,padding:"12px 14px",marginBottom:10}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
@@ -358,7 +358,7 @@ function QRMain({sims,bot,chat,onMarkPrinted,onUnmarkPrinted,onDeleteSim,onPrevi
         {sub==="done"&&<button onClick={()=>{sel.forEach(s=>onUnmarkPrinted(s));setSel([]);}} style={{...C.btnS,flex:1,color:"#f59e0b",border:"1px solid rgba(245,158,11,0.4)"}}>↩️ ย้ายกลับ</button>}
       </div>}
       {fl.length===0&&<div style={{textAlign:"center",padding:36,color:"#8b8fa8"}}><div style={{fontSize:36,marginBottom:8}}>{sub==="new"?"🎉":"📭"}</div><div>{sub==="new"?"พิมพ์ QR ครบทุกซิมแล้ว":"ยังไม่มีซิมที่พิมพ์แล้ว"}</div></div>}
-      {sub==="new"&&<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(145px,1fr))",gap:10}}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(145px,1fr))",gap:10}}>
         {fl.map(s=>(
           <div key={s.serial} onClick={()=>tog(s.serial)}
             style={{background:sel.includes(s.serial)?"rgba(79,70,229,0.2)":"rgba(255,255,255,0.04)",
@@ -370,7 +370,7 @@ function QRMain({sims,bot,chat,onMarkPrinted,onUnmarkPrinted,onDeleteSim,onPrevi
             </div>
             {s.phone?<div style={{color:"#000",fontSize:10,fontWeight:700}}>📞 {s.phone}</div>:<div style={{color:"#000",fontSize:9}}>📞 รับหลังลงทะเบียน</div>}
             <div style={{display:"flex",alignItems:"center",gap:3,justifyContent:"center",marginTop:2}}>
-              {s.simCode&&<span style={{background:({K:"#e53e3e",L:"#4f46e5",A:"#d97706",D:"#0891b2"}[s.simCode]||"#6b7280"),color:"white",fontSize:9,fontWeight:800,borderRadius:3,padding:"1px 4px"}}>{s.simCode}</span>}
+              {s.simCode&&<span style={{background:s.simCode==="K"?"#4f46e5":"#059669",color:"white",fontSize:9,fontWeight:800,borderRadius:3,padding:"1px 4px"}}>{s.simCode}</span>}
               <span style={{color:"#000",fontSize:10,fontWeight:700}}>ซิมหมายเลข: {s.trackingNo}{s.simType==="free"?" (ฟรี)":""}</span>
             </div>
             <div style={{display:"flex",gap:4,marginTop:6}}>
@@ -379,29 +379,7 @@ function QRMain({sims,bot,chat,onMarkPrinted,onUnmarkPrinted,onDeleteSim,onPrevi
             </div>
           </div>
         ))}
-      </div>}
-      {sub==="done"&&<div>{fl.map(s=>(
-        <div key={s.serial} onClick={()=>tog(s.serial)}
-          style={{background:sel.includes(s.serial)?"rgba(79,70,229,0.12)":"rgba(255,255,255,0.03)",
-            border:"1px solid "+(sel.includes(s.serial)?"#4f46e5":"rgba(255,255,255,0.07)"),
-            borderRadius:10,padding:"10px 14px",marginBottom:6,cursor:"pointer",display:"flex",alignItems:"center",gap:10}}>
-          <div style={{width:18,height:18,border:"2px solid "+(sel.includes(s.serial)?"#4f46e5":"rgba(255,255,255,0.2)"),borderRadius:4,background:sel.includes(s.serial)?"#4f46e5":"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-            {sel.includes(s.serial)&&<span style={{color:"white",fontSize:11,fontWeight:700}}>✓</span>}
-          </div>
-          <div style={{flex:1,minWidth:0}}>
-            <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2}}>
-              {s.simCode&&<span style={{background:({K:"#e53e3e",L:"#4f46e5",A:"#d97706",D:"#0891b2"}[s.simCode]||"#6b7280"),color:"white",fontSize:9,fontWeight:800,borderRadius:3,padding:"1px 5px"}}>{s.simCode}</span>}
-              <span style={{color:"#e2e8f0",fontWeight:700,fontSize:13}}>ซิมหมายเลข: {s.trackingNo}{s.simType==="free"?" (ฟรี)":""}</span>
-            </div>
-            <div style={{color:"#8b8fa8",fontSize:11,fontFamily:"monospace"}}>{s.serial}</div>
-            {s.phone&&<div style={{color:"#6ee7b7",fontSize:11}}>📞 {s.phone}</div>}
-          </div>
-          <div style={{display:"flex",gap:4,flexShrink:0}}>
-            <button onClick={e=>{e.stopPropagation();onPreview(s);}} style={{...C.btnS,fontSize:10,padding:"4px 8px"}}>👁</button>
-            <button onClick={e=>{e.stopPropagation();onDeleteSim(s.serial);}} style={{...C.btnD,fontSize:10,padding:"4px 7px"}}>🗑</button>
-          </div>
-        </div>
-      ))}</div>}
+      </div>
     </div>
   );
 }
@@ -500,9 +478,9 @@ function Summary({sims,bot,chat,simType}){
     if(!bot||!chat){alert("กรุณาตั้งค่า Bot Token และ Chat ID ก่อน");return;}
     setSending(true);
     const now=new Date();
-    const now=new Date();
     const ds=now.toLocaleDateString("th-TH",{year:"numeric",month:"long",day:"numeric"});
     const tm=now.toLocaleTimeString("th-TH");
+    const tn=TYPES[simType].emoji+" "+TYPES[simType].label;
     const lines=ts.map((s,i)=>(i+1)+". "+s.serial+"\n   📞 "+(s.phone||"-")).join("\n\n");
     const msg="📊 รายงานประจำวัน 📦 ซิมเปล่า"+"\n📅 วันที่: "+ds+" เวลา "+tm+"\n─────────────────────────\n✅ ลงทะเบียนวันนี้: "+ts.length+" ซิม\n\n─────────────────────────\n"+(ts.length>0?"📋 รายการวันนี้:\n\n"+lines:"📋 ยังไม่มีลูกค้าลงทะเบียนวันนี้");
     try{
@@ -757,7 +735,7 @@ function App(){
     setSims(prev=>{
       const u=prev.map(s=>serials.includes(s.serial)?{...s,printed:true}:s);
       lsS(TYPES[st].ls,JSON.stringify(u));
-      serials.forEach(s=>updFB(s,{printed:true},st));
+      setTimeout(()=>serials.forEach(s=>updFB(s,{printed:true},st)),100);
       return u;
     });
     t3("✅ ย้ายไปพิมพ์แล้ว "+serials.length+" รายการ");
@@ -772,8 +750,7 @@ function App(){
     const now=Date.now();
     setSims(prev=>prev.map(s=>{
       if(s.serial!==serial)return s;
-      const simType=(s.simType==="free"||s.simCode==="L")?"🎁 ซิมฟรีเดือนแรก":"📦 ซิมเปล่า";
-      tgSend(bot,chat,"🔔 ลูกค้าสแกน QR Code แล้ว!\n"+simType+"\n📋 เลขซีเรียลซิม: "+s.serial+"\n📞 เบอร์โทร: "+(s.phone||"รับหลังลงทะเบียนซิม")+"\n🔢 เลขติดตาม: "+s.trackingNo+"\n⏰ เวลา: "+new Date(now).toLocaleString("th-TH")+"\n\n✅ กรุณาอัปเดตสถานะในแอพ");
+      tgSend(bot,chat,"🔔 ลูกค้าสแกน QR Code แล้ว!\n📋 เลขซีเรียลซิม: "+s.serial+"\n📞 เบอร์โทร: "+(s.phone||"รับหลังลงทะเบียนซิม")+"\n🔢 เลขติดตาม: "+s.trackingNo+"\n⏰ เวลา: "+new Date(now).toLocaleString("th-TH")+"\n\n✅ กรุณาอัปเดตสถานะในแอพ");
       updFB(s.serial,{scannedByCustomer:true,scannedAt:now},st);
       return{...s,scannedByCustomer:true,scannedAt:now};
     }));
