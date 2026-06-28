@@ -181,7 +181,7 @@ function Scanner({onScan,sims}){
         }
       });
     };
-    navigator.mediaDevices.getUserMedia({video:{facingMode:"environment",width:{ideal:1280},height:{ideal:720}}})
+    navigator.mediaDevices.getUserMedia({video:{facingMode:"environment",width:{ideal:1920},height:{ideal:1080}}})
       .then(st=>{
         if(svRef.current){svRef.current.srcObject=st;svRef.current.play();}
         if(window.ZXing)start();
@@ -196,43 +196,50 @@ function Scanner({onScan,sims}){
 
   useEffect(()=>{
     if(!camP){
-      if(ocrRef.current){try{ocrRef.current.stop();}catch(e){}ocrRef.current=null;}
+      if(ocrRef.current){clearInterval(ocrRef.current);ocrRef.current=null;}
       if(pvRef.current&&pvRef.current.srcObject){pvRef.current.srcObject.getTracks().forEach(t=>t.stop());pvRef.current.srcObject=null;}
       setMsgP("");return;
     }
     setCamS(false);
-    let active=true;
+    const cv=pcRef.current||document.createElement("canvas");
     navigator.mediaDevices.getUserMedia({video:{facingMode:"environment",width:{ideal:1280},height:{ideal:720}}})
-      .then(stream=>{
-        if(!active){stream.getTracks().forEach(t=>t.stop());return;}
-        if(pvRef.current){pvRef.current.srcObject=stream;pvRef.current.play();}
-        if(!('BarcodeDetector' in window)){
-          setMsgP("⌨️ กล้องไม่รองรับ — กรอกเบอร์เองด้านล่าง");setCamP(false);return;
-        }
-        const det=new BarcodeDetector({formats:['code_128','code_39','ean_13','itf','upc_a','upc_e','codabar']});
-        setMsgP("🔍 ชี้กล้องที่บาร์โค้ดเบอร์โทร...");
-        const scan=async()=>{
-          if(!active||!pvRef.current)return;
+      .then(st=>{
+        if(pvRef.current){pvRef.current.srcObject=st;pvRef.current.play();}
+        setMsgP("🔍 ชี้กล้องที่ตัวเลขเบอร์โทร...");
+        let busy=false;
+        ocrRef.current=setInterval(async()=>{
+          if(busy||!pvRef.current||pvRef.current.readyState<2)return;
+          busy=true;
           try{
-            const barcodes=await det.detect(pvRef.current);
-            if(barcodes.length){
-              for(const b of barcodes){
-                const t=b.rawValue.replace(/\D/g,"");
-                const m=t.match(/0[689]\d{8}/);
-                if(m){
-                  setPhone(m[0]);setMsgP("✅ เบอร์: "+m[0]);
-                  active=false;setCamP(false);return;
-                }
-              }
+            cv.width=pvRef.current.videoWidth;
+            cv.height=pvRef.current.videoHeight;
+            cv.getContext("2d").drawImage(pvRef.current,0,0);
+            const b64=cv.toDataURL("image/jpeg",0.8).split(",")[1];
+            const res=await fetch("https://api.anthropic.com/v1/messages",{
+              method:"POST",
+              headers:{"Content-Type":"application/json"},
+              body:JSON.stringify({
+                model:"claude-sonnet-4-6",
+                max_tokens:50,
+                messages:[{role:"user",content:[
+                  {type:"image",source:{type:"base64",media_type:"image/jpeg",data:b64}},
+                  {type:"text",text:"ในภาพนี้มีเบอร์โทรศัพท์มือถือไทย 10 หลัก ขึ้นต้นด้วย 06, 08, หรือ 09 หรือไม่? ถ้ามีตอบแค่ตัวเลข 10 หลักเท่านั้น ห้ามมีข้อความอื่น ถ้าไม่มีตอบว่า NO"}
+                ]}]
+              })
+            });
+            const d=await res.json();
+            const txt=(d.content?.[0]?.text||"").trim().replace(/\D/g,"");
+            if(txt.match(/^0[689]\d{8}$/)){
+              setPhone(txt);setMsgP("✅ เบอร์: "+txt);
+              clearInterval(ocrRef.current);ocrRef.current=null;
+              setCamP(false);
             }
           }catch(e){}
-          if(active)ocrRef.current={stop:()=>{active=false;}};
-          if(active)requestAnimationFrame(scan);
-        };
-        pvRef.current.onloadedmetadata=()=>requestAnimationFrame(scan);
+          busy=false;
+        },1200);
       }).catch(e=>setMsgP("❌ "+e.message));
     return()=>{
-      active=false;
+      if(ocrRef.current){clearInterval(ocrRef.current);ocrRef.current=null;}
       if(pvRef.current&&pvRef.current.srcObject){pvRef.current.srcObject.getTracks().forEach(t=>t.stop());pvRef.current.srcObject=null;}
     };
   },[camP]);
@@ -274,6 +281,7 @@ function Scanner({onScan,sims}){
         </div>
         {camP&&<div style={{marginBottom:8}}>
           <video ref={pvRef} style={{width:"100%",borderRadius:10,border:"2px solid #10b981",display:"block"}} playsInline muted/>
+          <canvas ref={pcRef} style={{display:"none"}}/>
           <div style={{marginTop:6,padding:"6px 12px",borderRadius:8,fontSize:12,textAlign:"center",background:"rgba(16,185,129,0.1)",color:"#6ee7b7"}}>{msgP||"กำลังเตรียม..."}</div>
         </div>}
         <div style={{display:"flex",gap:8}}>
@@ -578,7 +586,7 @@ function Summary({sims,bot,chat,simType,onRefresh}){
       <div style={{display:"flex",alignItems:"center",gap:8}}>
         <h3 style={{...C.h3,margin:0}}>📊 สรุปข้อมูล</h3>
         {refreshing&&<div style={{width:16,height:16,border:"2px solid rgba(255,255,255,0.1)",borderTop:"2px solid #a78bfa",borderRadius:"50%",animation:"spin 1s linear infinite"}}/>}
-        {!refreshing&&freshSims&&<span style={{color:"#6ee7b7",fontSize:11}}>✓ ข้อมูลล่าสุด</span>}
+        {!refreshing&&<span style={{color:"#6ee7b7",fontSize:11}}>✓ ข้อมูลล่าสุด</span>}
       </div>
       <div style={{display:"flex",gap:6}}>
         <button onClick={doRefresh} disabled={refreshing} style={{...C.btnS,opacity:refreshing?0.5:1,fontSize:13,padding:"8px 14px"}}>🔄 รีเฟรช</button>
