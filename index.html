@@ -196,46 +196,45 @@ function Scanner({onScan,sims}){
 
   useEffect(()=>{
     if(!camP){
-      if(ocrRef.current){try{ocrRef.current.reset();}catch(e){}ocrRef.current=null;}
+      if(ocrRef.current){try{ocrRef.current.stop();}catch(e){}ocrRef.current=null;}
+      if(pvRef.current&&pvRef.current.srcObject){pvRef.current.srcObject.getTracks().forEach(t=>t.stop());pvRef.current.srcObject=null;}
       setMsgP("");return;
     }
     setCamS(false);
-    const start=()=>{
-      if(!window.ZXing||!pvRef.current)return;
-      const h=new Map();
-      h.set(window.ZXing.DecodeHintType.POSSIBLE_FORMATS,[
-        window.ZXing.BarcodeFormat.CODE_128,
-        window.ZXing.BarcodeFormat.CODE_39,
-        window.ZXing.BarcodeFormat.EAN_13,
-        window.ZXing.BarcodeFormat.ITF,
-        window.ZXing.BarcodeFormat.UPC_A,
-      ]);
-      const r=new window.ZXing.BrowserMultiFormatReader(h,{delayBetweenScanAttempts:100});
-      ocrRef.current=r;
-      setMsgP("🔍 ชี้กล้องที่บาร์โค้ดเบอร์โทร...");
-      r.decodeFromVideoDevice(null,pvRef.current,res=>{
-        if(res){
-          const t=res.getText().replace(/\D/g,"");
-          const m=t.match(/0[689]\d{8}/);
-          if(m){
-            setPhone(m[0]);setMsgP("✅ เบอร์: "+m[0]);
-            try{ocrRef.current.reset();}catch(e){}ocrRef.current=null;
-            setCamP(false);
-          }
-        }
-      });
-    };
+    let active=true;
     navigator.mediaDevices.getUserMedia({video:{facingMode:"environment",width:{ideal:1280},height:{ideal:720}}})
-      .then(st=>{
-        if(pvRef.current){pvRef.current.srcObject=st;pvRef.current.play();}
-        if(window.ZXing)start();
-        else{
-          const sc=document.createElement("script");
-          sc.src="https://cdn.jsdelivr.net/npm/@zxing/library@0.19.1/umd/index.min.js";
-          sc.onload=start;document.head.appendChild(sc);
+      .then(stream=>{
+        if(!active){stream.getTracks().forEach(t=>t.stop());return;}
+        if(pvRef.current){pvRef.current.srcObject=stream;pvRef.current.play();}
+        if(!('BarcodeDetector' in window)){
+          setMsgP("⌨️ กล้องไม่รองรับ — กรอกเบอร์เองด้านล่าง");setCamP(false);return;
         }
+        const det=new BarcodeDetector({formats:['code_128','code_39','ean_13','itf','upc_a','upc_e','codabar']});
+        setMsgP("🔍 ชี้กล้องที่บาร์โค้ดเบอร์โทร...");
+        const scan=async()=>{
+          if(!active||!pvRef.current)return;
+          try{
+            const barcodes=await det.detect(pvRef.current);
+            if(barcodes.length){
+              for(const b of barcodes){
+                const t=b.rawValue.replace(/\D/g,"");
+                const m=t.match(/0[689]\d{8}/);
+                if(m){
+                  setPhone(m[0]);setMsgP("✅ เบอร์: "+m[0]);
+                  active=false;setCamP(false);return;
+                }
+              }
+            }
+          }catch(e){}
+          if(active)ocrRef.current={stop:()=>{active=false;}};
+          if(active)requestAnimationFrame(scan);
+        };
+        pvRef.current.onloadedmetadata=()=>requestAnimationFrame(scan);
       }).catch(e=>setMsgP("❌ "+e.message));
-    return()=>{if(ocrRef.current){try{ocrRef.current.reset();}catch(e){}ocrRef.current=null;}};
+    return()=>{
+      active=false;
+      if(pvRef.current&&pvRef.current.srcObject){pvRef.current.srcObject.getTracks().forEach(t=>t.stop());pvRef.current.srcObject=null;}
+    };
   },[camP]);
 
   const go=()=>{
@@ -550,7 +549,14 @@ function Summary({sims,bot,chat,simType,onRefresh}){
   };
   const ts=sims.filter(s=>s.scannedByCustomer&&getScannedDate(s)===today);
   const sm={};
-  sims.forEach(s=>{const k=new Date(s.createdAt).toISOString().slice(0,10);if(!sm[k])sm[k]={a:0,sc:0};sm[k].a++;if(s.scannedByCustomer)sm[k].sc++;});
+  sims.forEach(s=>{
+    try{
+      const k=s.createdAt?new Date(s.createdAt).toISOString().slice(0,10):"unknown";
+      if(!sm[k])sm[k]={a:0,sc:0};
+      sm[k].a++;
+      if(s.scannedByCustomer)sm[k].sc++;
+    }catch(e){}
+  });
   const send=async()=>{
     if(!bot||!chat){alert("กรุณาตั้งค่า Bot Token และ Chat ID ก่อน");return;}
     setSending(true);
