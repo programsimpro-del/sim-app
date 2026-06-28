@@ -750,7 +750,8 @@ function App(){
     const now=Date.now();
     setSims(prev=>prev.map(s=>{
       if(s.serial!==serial)return s;
-      tgSend(bot,chat,"🔔 ลูกค้าสแกน QR Code แล้ว!\n📋 เลขซีเรียลซิม: "+s.serial+"\n📞 เบอร์โทร: "+(s.phone||"รับหลังลงทะเบียนซิม")+"\n🔢 เลขติดตาม: "+s.trackingNo+"\n⏰ เวลา: "+new Date(now).toLocaleString("th-TH")+"\n\n✅ กรุณาอัปเดตสถานะในแอพ");
+      const simType=(s.simType==="free"||s.simCode==="L")?"🎁 ซิมฟรีเดือนแรก":"📦 ซิมเปล่า";
+      tgSend(bot,chat,"🔔 ลูกค้าสแกน QR Code แล้ว!\n"+simType+"\n📋 เลขซีเรียลซิม: "+s.serial+"\n📞 เบอร์โทร: "+(s.phone||"รับหลังลงทะเบียนซิม")+"\n🔢 เลขติดตาม: "+s.trackingNo+"\n⏰ เวลา: "+new Date(now).toLocaleString("th-TH")+"\n\n✅ กรุณาอัปเดตสถานะในแอพ");
       updFB(s.serial,{scannedByCustomer:true,scannedAt:now},st);
       return{...s,scannedByCustomer:true,scannedAt:now};
     }));
