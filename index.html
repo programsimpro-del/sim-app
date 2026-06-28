@@ -7,6 +7,7 @@
 <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.19.1/umd/index.min.js" async></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -167,8 +168,7 @@ function Scanner({onScan,sims}){
       if(!window.ZXing||!svRef.current)return;
       const h=new Map();
       h.set(window.ZXing.DecodeHintType.POSSIBLE_FORMATS,[window.ZXing.BarcodeFormat.CODE_128,window.ZXing.BarcodeFormat.CODE_39,window.ZXing.BarcodeFormat.EAN_13]);
-      h.set(window.ZXing.DecodeHintType.TRY_HARDER,true);
-      const r=new window.ZXing.BrowserMultiFormatReader(h);
+      const r=new window.ZXing.BrowserMultiFormatReader(h,{delayBetweenScanAttempts:100});
       srRef.current=r;setMsgS("🔍 ชี้กล้องที่บาร์โค้ดซีเรียล...");
       r.decodeFromVideoDevice(null,svRef.current,res=>{
         if(res&&!cool.current&&res.getText().length>=10){
@@ -177,38 +177,65 @@ function Scanner({onScan,sims}){
           setSerial(t);calcP(t);
           setMsgS("✅ ได้ซีเรียล: "+t.slice(0,14)+"...");
           setCamS(false);
-          setTimeout(()=>{cool.current=false;},1500);
+          setTimeout(()=>{cool.current=false;},800);
         }
       });
     };
-    navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}})
-      .then(st=>{if(svRef.current){svRef.current.srcObject=st;svRef.current.play();}if(window.ZXing)start();else{const sc=document.createElement("script");sc.src="https://unpkg.com/@zxing/library@latest/umd/index.min.js";sc.onload=start;document.head.appendChild(sc);}})
-      .catch(e=>setMsgS("❌ "+e.message));
+    navigator.mediaDevices.getUserMedia({video:{facingMode:"environment",width:{ideal:1280},height:{ideal:720}}})
+      .then(st=>{
+        if(svRef.current){svRef.current.srcObject=st;svRef.current.play();}
+        if(window.ZXing)start();
+        else{
+          const sc=document.createElement("script");
+          sc.src="https://cdn.jsdelivr.net/npm/@zxing/library@0.19.1/umd/index.min.js";
+          sc.onload=start;document.head.appendChild(sc);
+        }
+      }).catch(e=>setMsgS("❌ "+e.message));
     return()=>{if(srRef.current){try{srRef.current.reset();}catch(e){}srRef.current=null;}};
   },[camS]);
 
   useEffect(()=>{
-    if(!camP){if(ocrRef.current){clearInterval(ocrRef.current);ocrRef.current=null;}setMsgP("");return;}
+    if(!camP){
+      if(ocrRef.current){try{ocrRef.current.reset();}catch(e){}ocrRef.current=null;}
+      setMsgP("");return;
+    }
     setCamS(false);
-    const runOCR=()=>{
-      if(!pvRef.current||!pcRef.current)return;
-      const v=pvRef.current,cv=pcRef.current;
-      cv.width=v.videoWidth;cv.height=v.videoHeight;
-      cv.getContext("2d").drawImage(v,0,0);
-      if(!window.Tesseract)return;
-      window.Tesseract.recognize(cv,"eng",{tessedit_char_whitelist:"0123456789"}).then(({data:{text}})=>{
-        const m=text.replace(/\D/g,"").match(/0[689]\d{8}/);
-        if(m){setPhone(m[0]);setMsgP("✅ เบอร์: "+m[0]);clearInterval(ocrRef.current);ocrRef.current=null;setCamP(false);}
-      }).catch(()=>{});
+    const start=()=>{
+      if(!window.ZXing||!pvRef.current)return;
+      const h=new Map();
+      h.set(window.ZXing.DecodeHintType.POSSIBLE_FORMATS,[
+        window.ZXing.BarcodeFormat.CODE_128,
+        window.ZXing.BarcodeFormat.CODE_39,
+        window.ZXing.BarcodeFormat.EAN_13,
+        window.ZXing.BarcodeFormat.ITF,
+        window.ZXing.BarcodeFormat.UPC_A,
+      ]);
+      const r=new window.ZXing.BrowserMultiFormatReader(h,{delayBetweenScanAttempts:100});
+      ocrRef.current=r;
+      setMsgP("🔍 ชี้กล้องที่บาร์โค้ดเบอร์โทร...");
+      r.decodeFromVideoDevice(null,pvRef.current,res=>{
+        if(res){
+          const t=res.getText().replace(/\D/g,"");
+          const m=t.match(/0[689]\d{8}/);
+          if(m){
+            setPhone(m[0]);setMsgP("✅ เบอร์: "+m[0]);
+            try{ocrRef.current.reset();}catch(e){}ocrRef.current=null;
+            setCamP(false);
+          }
+        }
+      });
     };
-    navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}})
+    navigator.mediaDevices.getUserMedia({video:{facingMode:"environment",width:{ideal:1280},height:{ideal:720}}})
       .then(st=>{
         if(pvRef.current){pvRef.current.srcObject=st;pvRef.current.play();}
-        setMsgP("🔍 ชี้กล้องที่เบอร์โทร...");
-        const lt=cb=>{if(window.Tesseract){cb();return;}const sc=document.createElement("script");sc.src="https://unpkg.com/tesseract.js@4/dist/tesseract.min.js";sc.onload=cb;document.head.appendChild(sc);};
-        lt(()=>{ocrRef.current=setInterval(runOCR,1500);});
+        if(window.ZXing)start();
+        else{
+          const sc=document.createElement("script");
+          sc.src="https://cdn.jsdelivr.net/npm/@zxing/library@0.19.1/umd/index.min.js";
+          sc.onload=start;document.head.appendChild(sc);
+        }
       }).catch(e=>setMsgP("❌ "+e.message));
-    return()=>{if(ocrRef.current){clearInterval(ocrRef.current);ocrRef.current=null;}};
+    return()=>{if(ocrRef.current){try{ocrRef.current.reset();}catch(e){}ocrRef.current=null;}};
   },[camP]);
 
   const go=()=>{
@@ -248,7 +275,6 @@ function Scanner({onScan,sims}){
         </div>
         {camP&&<div style={{marginBottom:8}}>
           <video ref={pvRef} style={{width:"100%",borderRadius:10,border:"2px solid #10b981",display:"block"}} playsInline muted/>
-          <canvas ref={pcRef} style={{display:"none"}}/>
           <div style={{marginTop:6,padding:"6px 12px",borderRadius:8,fontSize:12,textAlign:"center",background:"rgba(16,185,129,0.1)",color:"#6ee7b7"}}>{msgP||"กำลังเตรียม..."}</div>
         </div>}
         <div style={{display:"flex",gap:8}}>
@@ -507,39 +533,17 @@ function SimList({sims,onDelete,onUpdatePhone}){
     </div>}
   </div>;
 }
-function Summary({sims:simsFromState,bot,chat,simType,onRefresh}){
+function Summary({sims,bot,chat,simType,onRefresh}){
   const [sending,setSending]=useState(false),[lastSent,setLastSent]=useState("");
-  const [freshSims,setFreshSims]=useState(null),[refreshing,setRefreshing]=useState(false);
+  const [refreshing,setRefreshing]=useState(false);
   const today=todayS();
 
   const doRefresh=useCallback(async()=>{
     setRefreshing(true);
-    try{
-      const paths=[TYPES[simType].path,"/sims"];
-      const results=await Promise.all(paths.map(p=>
-        Promise.race([fbG(p),new Promise((_,r)=>setTimeout(()=>r(null),6000))]).catch(()=>null)
-      ));
-      const merged={};
-      results.forEach(d=>{
-        if(d&&typeof d==="object"&&!d.error){
-          Object.values(d).filter(s=>s&&s.serial).forEach(s=>{merged[s.serial]=s;});
-        }
-      });
-      const fb=Object.values(merged);
-      if(fb.length>0)setFreshSims(fb);
-    }catch(e){}
+    if(onRefresh)await onRefresh();
     setRefreshing(false);
-  },[simType]);
+  },[onRefresh]);
 
-  useEffect(()=>{
-    doRefresh();
-    const id=setInterval(doRefresh,30000);
-    const onVisible=()=>{if(!document.hidden)doRefresh();};
-    document.addEventListener("visibilitychange",onVisible);
-    return()=>{clearInterval(id);document.removeEventListener("visibilitychange",onVisible);};
-  },[doRefresh]);
-
-  const sims=freshSims||simsFromState;
   const getScannedDate=s=>{
     if(s.scannedAt){try{return new Date(s.scannedAt).toISOString().slice(0,10);}catch(e){}}
     return null;
@@ -797,56 +801,46 @@ function App(){
         const [dp,dl,df]=await Promise.all(paths.map(p=>
           Promise.race([fbG(p),new Promise((_,r)=>setTimeout(()=>r(null),5000))]).catch(()=>null)
         ));
-        const mergePath=(d,setter,prev)=>{
-          if(!d||typeof d!=="object"||d.error)return;
-          const fb=Object.values(d).filter(s=>s&&s.serial);
-          if(!fb.length)return;
-          setter(old=>{
-            let changed=false;
-            const map={};old.forEach(s=>{map[s.serial]=s;});
-            fb.forEach(s=>{
-              const o=map[s.serial];
-              if(o&&!o.scannedByCustomer&&s.scannedByCustomer){changed=true;}
-              map[s.serial]={...o,...s};
-            });
-            if(changed){
-              const next=Object.values(map);
-              lsS(prev,JSON.stringify(next));
-              return next;
-            }
-            return old;
-          });
-        };
-        // merge plain + legacy /sims
-        const mergedPlain={};
-        [dp,dl].forEach(d=>{if(d&&typeof d==="object"&&!d.error)Object.values(d).filter(s=>s&&s.serial).forEach(s=>{mergedPlain[s.serial]=s;});});
-        const plainArr=Object.values(mergedPlain);
-        if(plainArr.length){
-          setPSims(old=>{
-            let changed=false;
-            const map={};old.forEach(s=>{map[s.serial]=s;});
-            plainArr.forEach(s=>{const o=map[s.serial];if(o&&!o.scannedByCustomer&&s.scannedByCustomer)changed=true;map[s.serial]={...o,...s};});
-            if(changed){const next=Object.values(map);lsS(TYPES.plain.ls,JSON.stringify(next));return next;}
-            return old;
-          });
-        }
-        if(df&&typeof df==="object"&&!df.error){
-          const freeArr=Object.values(df).filter(s=>s&&s.serial);
-          if(freeArr.length){
-            setFSims(old=>{
-              let changed=false;
-              const map={};old.forEach(s=>{map[s.serial]=s;});
-              freeArr.forEach(s=>{const o=map[s.serial];if(o&&!o.scannedByCustomer&&s.scannedByCustomer)changed=true;map[s.serial]={...o,...s};});
-              if(changed){const next=Object.values(map);lsS(TYPES.free.ls,JSON.stringify(next));return next;}
-              return old;
-            });
-          }
-        }
-      }catch(e){}
-    };
-    const id=setInterval(poll,30000);
-    return()=>clearInterval(id);
+  // ฟังก์ชัน fetch ทุก path แล้ว update state ตรง
+  const fetchAll=useCallback(async()=>{
+    try{
+      const [dp,dl,df]=await Promise.all([
+        Promise.race([fbG("/sims_plain"),new Promise((_,r)=>setTimeout(()=>r(null),6000))]).catch(()=>null),
+        Promise.race([fbG("/sims"),new Promise((_,r)=>setTimeout(()=>r(null),6000))]).catch(()=>null),
+        Promise.race([fbG("/sims_free"),new Promise((_,r)=>setTimeout(()=>r(null),6000))]).catch(()=>null),
+      ]);
+      // รวม plain + legacy
+      const mp={};
+      [dp,dl].forEach(d=>{if(d&&typeof d==="object"&&!d.error)Object.values(d).filter(s=>s&&s.serial).forEach(s=>{mp[s.serial]={...mp[s.serial],...s};});});
+      const pa=Object.values(mp);
+      if(pa.length)setPSims(old=>{
+        const om={};old.forEach(s=>{om[s.serial]=s;});
+        pa.forEach(s=>{om[s.serial]={...om[s.serial],...s};});
+        const next=Object.values(om);
+        lsS(TYPES.plain.ls,JSON.stringify(next));
+        return next;
+      });
+      // free
+      if(df&&typeof df==="object"&&!df.error){
+        const fa=Object.values(df).filter(s=>s&&s.serial);
+        if(fa.length)setFSims(old=>{
+          const om={};old.forEach(s=>{om[s.serial]=s;});
+          fa.forEach(s=>{om[s.serial]={...om[s.serial],...s};});
+          const next=Object.values(om);
+          lsS(TYPES.free.ls,JSON.stringify(next));
+          return next;
+        });
+      }
+    }catch(e){}
   },[]);
+
+  // polling ทุก 10 วินาที + กลับมาจากหน้าอื่น
+  useEffect(()=>{
+    const id=setInterval(fetchAll,10000);
+    const onVis=()=>{if(!document.hidden)fetchAll();};
+    document.addEventListener("visibilitychange",onVis);
+    return()=>{clearInterval(id);document.removeEventListener("visibilitychange",onVis);};
+  },[fetchAll]);
 
   const t3=(msg,type)=>{setToast({msg,type:"ok",...(type?{type}:{})});setTimeout(()=>setToast(null),3000);};
 
@@ -958,7 +952,7 @@ function App(){
         {tab==="pending"&&<PendingTab sims={sims} onMarkScanned={markSc} onPreview={s=>setModal(s)}/>}
         {tab==="scanned"&&<ScannedTab sims={sims}/>}
         {tab==="list"&&<SimList sims={sims} onDelete={delSim} onUpdatePhone={updPhone}/>}
-        {tab==="summary"&&<Summary sims={sims} bot={bot} chat={chat} simType={st}/>}
+        {tab==="summary"&&<Summary sims={sims} bot={bot} chat={chat} simType={st} onRefresh={fetchAll}/>}
         {tab==="archived"&&<ArchivedTab/>}
         {tab==="settings"&&<Settings bot={bot} chat={chat} setBot={setBot} setChat={setChat} onSave={()=>t3("✅ บันทึกแล้ว")}/>}
       </div>
