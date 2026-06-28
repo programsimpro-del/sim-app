@@ -39,18 +39,24 @@ const loadT=async t=>{
   const cfg=TYPES[t],raw=lsG(cfg.ls)||"[]";
   let loc=[];try{loc=JSON.parse(raw)}catch(e){}
   try{
-    const d=await Promise.race([fbG(cfg.path),new Promise((_,r)=>setTimeout(()=>r("to"),5000))]);
-    if(d&&typeof d==="object"&&!d.error){
-      const fb=Object.values(d).filter(s=>s&&s.serial);
-      if(fb.length>0){
-        // patch ซิมที่ scannedByCustomer=true แต่ไม่มี scannedAt
-        const toFix=fb.filter(s=>s.scannedByCustomer&&!s.scannedAt);
-        if(toFix.length>0){
-          const now=Date.now();
-          toFix.forEach(s=>{s.scannedAt=now;fbP(cfg.path+"/"+toKey(s.serial),{scannedAt:now}).catch(()=>{});});
-        }
-        lsS(cfg.ls,JSON.stringify(fb));return fb;
+    const paths=[cfg.path,...(t==="plain"?["/sims"]:[])];
+    const results=await Promise.all(paths.map(p=>
+      Promise.race([fbG(p),new Promise((_,r)=>setTimeout(()=>r(null),5000))]).catch(()=>null)
+    ));
+    const merged={};
+    results.forEach(d=>{
+      if(d&&typeof d==="object"&&!d.error){
+        Object.values(d).filter(s=>s&&s.serial).forEach(s=>{merged[s.serial]=s;});
       }
+    });
+    const fb=Object.values(merged);
+    if(fb.length>0){
+      const toFix=fb.filter(s=>s.scannedByCustomer&&!s.scannedAt);
+      if(toFix.length>0){
+        const now=Date.now();
+        toFix.forEach(s=>{s.scannedAt=now;fbP(cfg.path+"/"+toKey(s.serial),{scannedAt:now}).catch(()=>{});});
+      }
+      lsS(cfg.ls,JSON.stringify(fb));return fb;
     }
   }catch(e){}
   return loc;
@@ -509,11 +515,18 @@ function Summary({sims:simsFromState,bot,chat,simType,onRefresh}){
   const doRefresh=useCallback(async()=>{
     setRefreshing(true);
     try{
-      const d=await Promise.race([fbG(TYPES[simType].path),new Promise((_,r)=>setTimeout(()=>r("to"),6000))]);
-      if(d&&typeof d==="object"&&!d.error){
-        const fb=Object.values(d).filter(s=>s&&s.serial);
-        setFreshSims(fb);
-      }
+      const paths=[TYPES[simType].path,"/sims"];
+      const results=await Promise.all(paths.map(p=>
+        Promise.race([fbG(p),new Promise((_,r)=>setTimeout(()=>r(null),6000))]).catch(()=>null)
+      ));
+      const merged={};
+      results.forEach(d=>{
+        if(d&&typeof d==="object"&&!d.error){
+          Object.values(d).filter(s=>s&&s.serial).forEach(s=>{merged[s.serial]=s;});
+        }
+      });
+      const fb=Object.values(merged);
+      if(fb.length>0)setFreshSims(fb);
     }catch(e){}
     setRefreshing(false);
   },[simType]);
