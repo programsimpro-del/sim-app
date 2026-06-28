@@ -500,11 +500,11 @@ function Summary({sims,bot,chat,simType}){
     if(!bot||!chat){alert("กรุณาตั้งค่า Bot Token และ Chat ID ก่อน");return;}
     setSending(true);
     const now=new Date();
+    const now=new Date();
     const ds=now.toLocaleDateString("th-TH",{year:"numeric",month:"long",day:"numeric"});
     const tm=now.toLocaleTimeString("th-TH");
-    const tn=TYPES[simType].emoji+" "+TYPES[simType].label;
-    const lines=ts.map((s,i)=>(i+1)+". "+s.serial+"\n   📞 "+(s.phone||"รับหลังลงทะเบียน")+"\n   🔢 ซิมหมายเลข: "+s.trackingNo+"\n   ⏰ "+(s.scannedAt?new Date(s.scannedAt).toLocaleString("th-TH"):"-")).join("\n\n");
-    const msg="📊 รายงานประจำวัน "+tn+"\n📅 วันที่: "+ds+" เวลา "+tm+"\n────────────────────────────\n✅ ลงทะเบียนวันนี้: "+ts.length+" ซิม\n📦 ซิมทั้งหมด: "+sims.length+" ซิม\n⏳ รอลงทะเบียน: "+sims.filter(s=>!s.scannedByCustomer).length+" ซิม\n────────────────────────────\n"+(ts.length>0?"📋 รายการวันนี้:\n\n"+lines:"📋 ยังไม่มีลูกค้าลงทะเบียนวันนี้");
+    const lines=ts.map((s,i)=>(i+1)+". "+s.serial+"\n   📞 "+(s.phone||"-")).join("\n\n");
+    const msg="📊 รายงานประจำวัน 📦 ซิมเปล่า"+"\n📅 วันที่: "+ds+" เวลา "+tm+"\n─────────────────────────\n✅ ลงทะเบียนวันนี้: "+ts.length+" ซิม\n\n─────────────────────────\n"+(ts.length>0?"📋 รายการวันนี้:\n\n"+lines:"📋 ยังไม่มีลูกค้าลงทะเบียนวันนี้");
     try{
       const res=await fetch("https://api.telegram.org/bot"+bot+"/sendMessage",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({chat_id:chat,text:msg})});
       if(res.ok){setLastSent(tm);alert("✅ ส่ง Report สำเร็จ!");}
