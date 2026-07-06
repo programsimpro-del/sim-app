@@ -525,13 +525,26 @@ function Summary({sims,bot,chat,simType,onRefresh}){
     if(isToday){setHistSims(null);return;}
     setHistLoading(true);
     const ym=selDate.slice(0,7).replace("-","");
-    fbG("/history/"+ym).then(d=>{
-      if(d&&typeof d==="object"&&!d.error){
-        const all=Object.values(d).filter(s=>s&&s.serial);
-        const dayStart=new Date(selDate+"T00:00:00+07:00").getTime();
-        const dayEnd=dayStart+86400000;
-        setHistSims(all.filter(s=>{const t=Number(s.scannedAt||s.registeredAt||0);return t>=dayStart&&t<dayEnd;}));
-      }else setHistSims([]);
+    const dayStart=new Date(selDate+"T00:00:00+07:00").getTime();
+    const dayEnd=dayStart+86400000;
+    Promise.all([
+      fbG("/history/"+ym).catch(()=>null),
+      fbG("/sims_plain").catch(()=>null),
+      fbG("/sims").catch(()=>null),
+    ]).then(([dh,dp,dl])=>{
+      const seen=new Set();
+      const all=[];
+      [dh,dp,dl].forEach(d=>{
+        if(!d||typeof d!=="object"||d.error)return;
+        Object.values(d).filter(s=>s&&s.serial).forEach(s=>{
+          if(seen.has(s.serial))return;
+          seen.add(s.serial);
+          if(!s.scannedByCustomer)return;
+          const t=Number(s.scannedAt||s.registeredAt||0);
+          if(t>=dayStart&&t<dayEnd)all.push(s);
+        });
+      });
+      setHistSims(all);
       setHistLoading(false);
     }).catch(()=>{setHistSims([]);setHistLoading(false);});
   },[selDate,isToday]);
