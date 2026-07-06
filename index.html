@@ -549,32 +549,44 @@ function Summary({sims,bot,chat,simType,onRefresh}){
       if(s.scannedByCustomer)sm[k].sc++;
     }catch(e){}
   });
+  const CODES=[
+    {code:"K",label:"True (K)",emoji:"🔴"},
+    {code:"L",label:"True (L)",emoji:"🟣"},
+    {code:"A",label:"AIS (A)",emoji:"🟡"},
+    {code:"D",label:"DTAC (D)",emoji:"🔵"},
+    {code:"",label:"ไม่ระบุ",emoji:"⚪"},
+  ];
+  const tsByCode=code=>ts.filter(s=>(s.simCode||"")===(code));
+
   const send=async()=>{
     if(!bot||!chat){alert("กรุณาตั้งค่า Bot Token และ Chat ID ก่อน");return;}
     setSending(true);
     const now=new Date();
     const ds=now.toLocaleDateString("th-TH",{year:"numeric",month:"long",day:"numeric"});
     const tm=now.toLocaleTimeString("th-TH");
-    const lines=ts.map((s,i)=>(i+1)+". "+s.serial+"\n   🔢 ซิมหมายเลข: "+s.trackingNo+"\n   📞 "+(s.phone||"-")).join("\n\n");
-    const header="📊 รายงานประจำวัน 📦 ซิมเปล่า\n📅 วันที่: "+ds+" เวลา "+tm+"\n─────────────────────────\n✅ ลงทะเบียนวันนี้: "+ts.length+" ซิม\n\n─────────────────────────\n"+(ts.length>0?"📋 รายการวันนี้:\n\n":"📋 ยังไม่มีลูกค้าลงทะเบียนวันนี้");
     const tgSend=async(text)=>{
       const r=await fetch("https://api.telegram.org/bot"+bot+"/sendMessage",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({chat_id:chat,text})});
       if(!r.ok){const d=await r.json().catch(()=>({}));throw new Error(d.description||r.status);}
-      return r;
+    };
+    const sendGroup=async(list,label,emoji)=>{
+      if(list.length===0)return;
+      const header="📊 รายงานประจำวัน "+emoji+" "+label+"\n📅 วันที่: "+ds+" เวลา "+tm+"\n─────────────────────────\n✅ ลงทะเบียนวันนี้: "+list.length+" ซิม\n─────────────────────────\n📋 รายการวันนี้:\n\n";
+      const chunks=[];let cur=header;
+      list.forEach((s,i)=>{
+        const line=(i+1)+". "+s.serial+"\n   🔢 ซิมหมายเลข: "+s.trackingNo+"\n   📞 "+(s.phone||"-")+"\n\n";
+        if((cur+line).length>3800){chunks.push(cur);cur=line;}
+        else cur+=line;
+      });
+      if(cur)chunks.push(cur);
+      for(const chunk of chunks)await tgSend(chunk);
     };
     try{
-      // แบ่งส่งถ้าข้อความยาวเกิน 4000 ตัวอักษร
       if(ts.length===0){
-        await tgSend(header);
+        await tgSend("📊 รายงานประจำวัน\n📅 วันที่: "+ds+" เวลา "+tm+"\n─────────────────────────\n📋 ยังไม่มีลูกค้าลงทะเบียนวันนี้");
       } else {
-        const chunks=[];let cur=header;
-        ts.forEach((s,i)=>{
-          const line=(i+1)+". "+s.serial+"\n   🔢 ซิมหมายเลข: "+s.trackingNo+"\n   📞 "+(s.phone||"-")+"\n\n";
-          if((cur+line).length>3800){chunks.push(cur);cur=line;}
-          else cur+=line;
-        });
-        if(cur)chunks.push(cur);
-        for(const chunk of chunks){await tgSend(chunk);}
+        for(const c of CODES){
+          await sendGroup(tsByCode(c.code),c.label,c.emoji);
+        }
       }
       setLastSent(tm);alert("✅ ส่ง Report สำเร็จ!");
     }catch(e){alert("❌ ส่งไม่สำเร็จ: "+e.message);}
@@ -602,14 +614,25 @@ function Summary({sims,bot,chat,simType,onRefresh}){
       ))}
     </div>
     <h4 style={{color:"#e2e8f0",fontSize:13,fontWeight:700,marginBottom:8}}>✅ ลงทะเบียนวันนี้ ({ts.length})</h4>
-    {ts.length===0?<div style={{textAlign:"center",padding:20,color:"#8b8fa8"}}>ยังไม่มีลูกค้าลงทะเบียนวันนี้</div>:ts.map((s,i)=>(
-      <div key={s.serial} style={{background:"rgba(5,150,105,0.08)",border:"1px solid rgba(5,150,105,0.2)",borderRadius:10,padding:"10px 14px",marginBottom:8}}>
-        <div style={{color:"white",fontFamily:"monospace",fontSize:12,fontWeight:700}}>{i+1}. {s.serial}</div>
-        <div style={{color:"#6ee7b7",fontSize:11}}>📞 {s.phone||"รับหลังลงทะเบียน"}</div>
-        <div style={{color:"#a78bfa",fontSize:11}}>🔢 {s.trackingNo}</div>
-        {s.scannedAt&&<div style={{color:"#8b8fa8",fontSize:11}}>⏰ {new Date(s.scannedAt).toLocaleTimeString("th-TH")}</div>}
-      </div>
-    ))}
+    {ts.length===0?<div style={{textAlign:"center",padding:20,color:"#8b8fa8"}}>ยังไม่มีลูกค้าลงทะเบียนวันนี้</div>:
+      CODES.filter(c=>tsByCode(c.code).length>0).map(c=>(
+        <div key={c.code||"none"} style={{marginBottom:14}}>
+          <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:6,padding:"6px 12px",background:"rgba(255,255,255,0.06)",borderRadius:8}}>
+            <span style={{fontSize:15}}>{c.emoji}</span>
+            <span style={{color:"#e2e8f0",fontWeight:700,fontSize:13}}>{c.label}</span>
+            <span style={{background:"rgba(167,139,250,0.2)",color:"#a78bfa",borderRadius:99,fontSize:11,fontWeight:700,padding:"1px 8px",marginLeft:"auto"}}>{tsByCode(c.code).length} ราย</span>
+          </div>
+          {tsByCode(c.code).map((s,i)=>(
+            <div key={s.serial} style={{background:"rgba(5,150,105,0.08)",border:"1px solid rgba(5,150,105,0.2)",borderRadius:10,padding:"10px 14px",marginBottom:6}}>
+              <div style={{color:"white",fontFamily:"monospace",fontSize:12,fontWeight:700}}>{i+1}. {s.serial}</div>
+              <div style={{color:"#6ee7b7",fontSize:11}}>📞 {s.phone||"รับหลังลงทะเบียน"}</div>
+              <div style={{color:"#a78bfa",fontSize:11}}>🔢 {s.trackingNo}</div>
+              {s.scannedAt&&<div style={{color:"#8b8fa8",fontSize:11}}>⏰ {new Date(s.scannedAt).toLocaleTimeString("th-TH")}</div>}
+            </div>
+          ))}
+        </div>
+      ))
+    }
     <h4 style={{color:"#e2e8f0",fontSize:13,fontWeight:700,margin:"16px 0 8px"}}>📅 สรุปรายวัน</h4>
     <div style={{overflowX:"auto"}}>
       <table style={{width:"100%",borderCollapse:"collapse"}}>
