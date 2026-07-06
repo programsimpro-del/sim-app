@@ -556,7 +556,14 @@ function Summary({sims,bot,chat,simType,onRefresh}){
     {code:"D",label:"DTAC (D)",emoji:"🔵"},
     {code:"",label:"ไม่ระบุ",emoji:"⚪"},
   ];
-  const tsByCode=code=>ts.filter(s=>(s.simCode||"")===(code));
+  const getCode=s=>{
+    if(s.simCode)return s.simCode.toUpperCase();
+    // fallback: ดูจากตัวอักษรแรกของ trackingNo
+    const first=(s.trackingNo||"").toString().toUpperCase().charAt(0);
+    if(["K","L","A","D"].includes(first))return first;
+    return "";
+  };
+  const tsByCode=code=>ts.filter(s=>getCode(s)===code);
 
   const send=async()=>{
     if(!bot||!chat){alert("กรุณาตั้งค่า Bot Token และ Chat ID ก่อน");return;}
@@ -832,13 +839,23 @@ function App(){
   // ฟังก์ชัน fetch ทุก path แล้ว update state
   const fetchAll=useCallback(async()=>{
     try{
-      const [dp,dl,df]=await Promise.all([
+      const ym=new Date().toISOString().slice(0,7).replace("-","");
+      const [dp,dl,df,dh]=await Promise.all([
         Promise.race([fbG("/sims_plain"),new Promise((_,r)=>setTimeout(()=>r(null),6000))]).catch(()=>null),
         Promise.race([fbG("/sims"),new Promise((_,r)=>setTimeout(()=>r(null),6000))]).catch(()=>null),
         Promise.race([fbG("/sims_free"),new Promise((_,r)=>setTimeout(()=>r(null),6000))]).catch(()=>null),
+        Promise.race([fbG("/history/"+ym),new Promise((_,r)=>setTimeout(()=>r(null),6000))]).catch(()=>null),
       ]);
+      // รวม plain + legacy + history (history = scanned แล้ว)
       const mp={};
       [dp,dl].forEach(d=>{if(d&&typeof d==="object"&&!d.error)Object.values(d).filter(s=>s&&s.serial).forEach(s=>{mp[s.serial]={...mp[s.serial],...s};});});
+      // เพิ่ม history เข้า plain sims (mark scannedByCustomer=true)
+      if(dh&&typeof dh==="object"&&!dh.error){
+        Object.values(dh).filter(s=>s&&s.serial).forEach(s=>{
+          if(!mp[s.serial])mp[s.serial]={...s,scannedByCustomer:true};
+          else mp[s.serial]={...mp[s.serial],...s,scannedByCustomer:true};
+        });
+      }
       const pa=Object.values(mp);
       if(pa.length)setPSims(old=>{
         const om={};old.forEach(s=>{om[s.serial]=s;});
