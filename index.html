@@ -510,7 +510,10 @@ function SimList({sims,onDelete,onUpdatePhone}){
 function Summary({sims,bot,chat,simType,onRefresh}){
   const [sending,setSending]=useState(false),[lastSent,setLastSent]=useState("");
   const [refreshing,setRefreshing]=useState(false);
+  const [selDate,setSelDate]=useState(()=>todayS());
+  const [histSims,setHistSims]=useState(null),[histLoading,setHistLoading]=useState(false);
   const today=todayS();
+  const isToday=selDate===today;
 
   const doRefresh=useCallback(async()=>{
     setRefreshing(true);
@@ -518,37 +521,38 @@ function Summary({sims,bot,chat,simType,onRefresh}){
     setRefreshing(false);
   },[onRefresh]);
 
-  const getScannedDate=s=>{
-    if(s.scannedAt){try{return new Date(s.scannedAt).toISOString().slice(0,10);}catch(e){}}
-    // ถ้าไม่มี scannedAt แต่ scannedByCustomer=true ให้ดูจาก phone ที่อาจ set วันนี้
-    return null;
-  };
-  // คำนวณช่วงวันนี้ตาม timezone ไทย UTC+7
-  const nowTH=new Date(new Date().toLocaleString("en-US",{timeZone:"Asia/Bangkok"}));
-  const todayStr=nowTH.toISOString().slice(0,10);
-  const startOfDay=new Date(todayStr+"T00:00:00+07:00").getTime();
-  const endOfDay=startOfDay+86400000;
+  useEffect(()=>{
+    if(isToday){setHistSims(null);return;}
+    setHistLoading(true);
+    const ym=selDate.slice(0,7).replace("-","");
+    fbG("/history/"+ym).then(d=>{
+      if(d&&typeof d==="object"&&!d.error){
+        const all=Object.values(d).filter(s=>s&&s.serial);
+        const dayStart=new Date(selDate+"T00:00:00+07:00").getTime();
+        const dayEnd=dayStart+86400000;
+        setHistSims(all.filter(s=>{const t=Number(s.scannedAt||s.registeredAt||0);return t>=dayStart&&t<dayEnd;}));
+      }else setHistSims([]);
+      setHistLoading(false);
+    }).catch(()=>{setHistSims([]);setHistLoading(false);});
+  },[selDate,isToday]);
 
-  const ts=sims.filter(s=>{
-    if(!s.scannedByCustomer)return false;
-    if(!s.scannedAt){
-      // ซิมเก่าไม่มี scannedAt — ถ้า patch แล้วจะมี แต่ถ้ายังไม่มีให้นับด้วย
-      return true;
-    }
-    try{
-      const t=typeof s.scannedAt==="number"?s.scannedAt:Number(s.scannedAt)||new Date(s.scannedAt).getTime();
-      return t>=startOfDay&&t<endOfDay;
-    }catch(e){return true;}
-  });
-  const sm={};
-  sims.forEach(s=>{
-    try{
-      const k=s.createdAt?new Date(s.createdAt).toISOString().slice(0,10):"unknown";
-      if(!sm[k])sm[k]={a:0,sc:0};
-      sm[k].a++;
-      if(s.scannedByCustomer)sm[k].sc++;
-    }catch(e){}
-  });
+  const getCode=s=>{
+    if(s.simCode)return s.simCode.toUpperCase();
+    const first=(s.trackingNo||"").toString().toUpperCase().charAt(0);
+    if(["K","L","A","D"].includes(first))return first;
+    return "";
+  };
+
+  const startOfDay=new Date(selDate+"T00:00:00+07:00").getTime();
+  const endOfDay=startOfDay+86400000;
+  const ts=isToday
+    ?sims.filter(s=>{
+        if(!s.scannedByCustomer)return false;
+        if(!s.scannedAt)return true;
+        try{const t=typeof s.scannedAt==="number"?s.scannedAt:Number(s.scannedAt)||new Date(s.scannedAt).getTime();return t>=startOfDay&&t<endOfDay;}catch(e){return true;}
+      })
+    :(histSims||[]);
+
   const CODES=[
     {code:"K",label:"True (K)",emoji:"🔴"},
     {code:"L",label:"True (L)",emoji:"🟣"},
@@ -556,103 +560,111 @@ function Summary({sims,bot,chat,simType,onRefresh}){
     {code:"D",label:"DTAC (D)",emoji:"🔵"},
     {code:"",label:"ไม่ระบุ",emoji:"⚪"},
   ];
-  const getCode=s=>{
-    if(s.simCode)return s.simCode.toUpperCase();
-    // fallback: ดูจากตัวอักษรแรกของ trackingNo
-    const first=(s.trackingNo||"").toString().toUpperCase().charAt(0);
-    if(["K","L","A","D"].includes(first))return first;
-    return "";
-  };
   const tsByCode=code=>ts.filter(s=>getCode(s)===code);
+
+  const sm={};
+  sims.forEach(s=>{try{const k=s.createdAt?new Date(s.createdAt).toISOString().slice(0,10):"unknown";if(!sm[k])sm[k]={a:0,sc:0};sm[k].a++;if(s.scannedByCustomer)sm[k].sc++;}catch(e){}});
 
   const send=async()=>{
     if(!bot||!chat){alert("กรุณาตั้งค่า Bot Token และ Chat ID ก่อน");return;}
     setSending(true);
-    const now=new Date();
-    const ds=now.toLocaleDateString("th-TH",{year:"numeric",month:"long",day:"numeric"});
-    const tm=now.toLocaleTimeString("th-TH");
-    const tgSend=async(text)=>{
-      const r=await fetch("https://api.telegram.org/bot"+bot+"/sendMessage",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({chat_id:chat,text})});
-      if(!r.ok){const d=await r.json().catch(()=>({}));throw new Error(d.description||r.status);}
-    };
+    const ds=new Date(selDate+"T12:00:00+07:00").toLocaleDateString("th-TH",{year:"numeric",month:"long",day:"numeric"});
+    const tm=new Date().toLocaleTimeString("th-TH");
+    const tgSend=async(text)=>{const r=await fetch("https://api.telegram.org/bot"+bot+"/sendMessage",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({chat_id:chat,text})});if(!r.ok){const d=await r.json().catch(()=>({}));throw new Error(d.description||r.status);}};
     const sendGroup=async(list,label,emoji)=>{
       if(list.length===0)return;
-      const header="📊 รายงานประจำวัน "+emoji+" "+label+"\n📅 วันที่: "+ds+" เวลา "+tm+"\n─────────────────────────\n✅ ลงทะเบียนวันนี้: "+list.length+" ซิม\n─────────────────────────\n📋 รายการวันนี้:\n\n";
+      const header="📊 รายงานประจำวัน "+emoji+" "+label+"\n📅 วันที่: "+ds+"\n─────────────────────────\n✅ ลงทะเบียน: "+list.length+" ซิม\n─────────────────────────\n📋 รายการ:\n\n";
       const chunks=[];let cur=header;
-      list.forEach((s,i)=>{
-        const line=(i+1)+". "+s.serial+"\n   🔢 ซิมหมายเลข: "+s.trackingNo+"\n   📞 "+(s.phone||"-")+"\n\n";
-        if((cur+line).length>3800){chunks.push(cur);cur=line;}
-        else cur+=line;
-      });
+      list.forEach((s,i)=>{const line=(i+1)+". "+s.serial+"\n   🔢 ซิมหมายเลข: "+s.trackingNo+"\n   📞 "+(s.phone||"-")+"\n\n";if((cur+line).length>3800){chunks.push(cur);cur=line;}else cur+=line;});
       if(cur)chunks.push(cur);
       for(const chunk of chunks)await tgSend(chunk);
     };
     try{
-      if(ts.length===0){
-        await tgSend("📊 รายงานประจำวัน\n📅 วันที่: "+ds+" เวลา "+tm+"\n─────────────────────────\n📋 ยังไม่มีลูกค้าลงทะเบียนวันนี้");
-      } else {
-        for(const c of CODES){
-          await sendGroup(tsByCode(c.code),c.label,c.emoji);
-        }
-      }
+      if(ts.length===0){await tgSend("📊 รายงานประจำวัน\n📅 วันที่: "+ds+"\n─────────────────────────\n📋 ไม่มีข้อมูลลงทะเบียนในวันนี้");}
+      else{for(const c of CODES)await sendGroup(tsByCode(c.code),c.label,c.emoji);}
       setLastSent(tm);alert("✅ ส่ง Report สำเร็จ!");
     }catch(e){alert("❌ ส่งไม่สำเร็จ: "+e.message);}
     setSending(false);
   };
+
   return<div style={C.card}>
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:8}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
       <div style={{display:"flex",alignItems:"center",gap:8}}>
         <h3 style={{...C.h3,margin:0}}>📊 สรุปข้อมูล</h3>
         {refreshing&&<div style={{width:16,height:16,border:"2px solid rgba(255,255,255,0.1)",borderTop:"2px solid #a78bfa",borderRadius:"50%",animation:"spin 1s linear infinite"}}/>}
-        {!refreshing&&<span style={{color:"#6ee7b7",fontSize:11}}>✓ ข้อมูลล่าสุด</span>}
+        {!refreshing&&isToday&&<span style={{color:"#6ee7b7",fontSize:11}}>✓ ข้อมูลล่าสุด</span>}
       </div>
       <div style={{display:"flex",gap:6}}>
-        <button onClick={doRefresh} disabled={refreshing} style={{...C.btnS,opacity:refreshing?0.5:1,fontSize:13,padding:"8px 14px"}}>🔄 รีเฟรช</button>
-        <button onClick={send} disabled={sending} style={{...C.btnP,opacity:sending?0.6:1}}>{sending?"⏳ กำลังส่ง...":"📤 ส่ง Report"}</button>
+        {isToday&&<button onClick={doRefresh} disabled={refreshing} style={{...C.btnS,opacity:refreshing?0.5:1,fontSize:12,padding:"7px 12px"}}>🔄 รีเฟรช</button>}
+        <button onClick={send} disabled={sending||histLoading} style={{...C.btnP,opacity:(sending||histLoading)?0.6:1,fontSize:12}}>{sending?"⏳ กำลังส่ง...":"📤 ส่ง Report"}</button>
       </div>
     </div>
+
+    {/* Date Picker */}
+    <div style={{background:"rgba(79,70,229,0.08)",border:"1px solid rgba(79,70,229,0.25)",borderRadius:12,padding:"10px 14px",marginBottom:14}}>
+      <div style={{color:"#a5b4fc",fontSize:12,fontWeight:700,marginBottom:8}}>📅 เลือกวันที่ดูข้อมูล</div>
+      <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+        <input type="date" value={selDate} max={today} onChange={e=>setSelDate(e.target.value)}
+          style={{...C.inp,flex:1,minWidth:140,colorScheme:"dark"}}/>
+        <button onClick={()=>setSelDate(today)} style={{...C.btnS,fontSize:12,padding:"8px 12px",background:isToday?"rgba(99,102,241,0.3)":"",borderColor:isToday?"#6366f1":""}}>📅 วันนี้</button>
+        <button onClick={()=>{const d=new Date(selDate);d.setDate(d.getDate()-1);setSelDate(d.toISOString().slice(0,10));}} style={{...C.btnS,fontSize:12,padding:"8px 10px"}}>◀</button>
+        <button onClick={()=>{const d=new Date(selDate);d.setDate(d.getDate()+1);const next=d.toISOString().slice(0,10);if(next<=today)setSelDate(next);}} style={{...C.btnS,fontSize:12,padding:"8px 10px",opacity:selDate>=today?0.3:1}} disabled={selDate>=today}>▶</button>
+      </div>
+      {!isToday&&<div style={{color:"#f59e0b",fontSize:11,marginTop:6}}>⏪ ดูข้อมูลย้อนหลัง: {new Date(selDate+"T12:00:00+07:00").toLocaleDateString("th-TH",{weekday:"long",year:"numeric",month:"long",day:"numeric"})}</div>}
+    </div>
+
     {lastSent&&<div style={{background:"rgba(5,150,105,0.12)",border:"1px solid rgba(5,150,105,0.3)",borderRadius:10,padding:"8px 14px",marginBottom:12,fontSize:12,color:"#6ee7b7"}}>✅ ส่งล่าสุดเวลา {lastSent} น.</div>}
-    <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:16}}>
+
+    {isToday&&<div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:16}}>
       {[{l:"ลงทะเบียนวันนี้",v:ts.length,c:"#6ee7b7"},{l:"ซิมทั้งหมด",v:sims.length,c:"#a5b4fc"},{l:"รอลงทะเบียน",v:sims.filter(s=>!s.scannedByCustomer).length,c:"#fbbf24"}].map(it=>(
         <div key={it.l} style={{background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:12,padding:"12px 8px",textAlign:"center"}}>
           <div style={{color:it.c,fontSize:26,fontWeight:800}}>{it.v}</div>
           <div style={{color:"#8b8fa8",fontSize:11,marginTop:4}}>{it.l}</div>
         </div>
       ))}
-    </div>
-    <h4 style={{color:"#e2e8f0",fontSize:13,fontWeight:700,marginBottom:8}}>✅ ลงทะเบียนวันนี้ ({ts.length})</h4>
-    {ts.length===0?<div style={{textAlign:"center",padding:20,color:"#8b8fa8"}}>ยังไม่มีลูกค้าลงทะเบียนวันนี้</div>:
-      CODES.filter(c=>tsByCode(c.code).length>0).map(c=>(
-        <div key={c.code||"none"} style={{marginBottom:14}}>
-          <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:6,padding:"6px 12px",background:"rgba(255,255,255,0.06)",borderRadius:8}}>
-            <span style={{fontSize:15}}>{c.emoji}</span>
-            <span style={{color:"#e2e8f0",fontWeight:700,fontSize:13}}>{c.label}</span>
-            <span style={{background:"rgba(167,139,250,0.2)",color:"#a78bfa",borderRadius:99,fontSize:11,fontWeight:700,padding:"1px 8px",marginLeft:"auto"}}>{tsByCode(c.code).length} ราย</span>
-          </div>
-          {tsByCode(c.code).map((s,i)=>(
-            <div key={s.serial} style={{background:"rgba(5,150,105,0.08)",border:"1px solid rgba(5,150,105,0.2)",borderRadius:10,padding:"10px 14px",marginBottom:6}}>
-              <div style={{color:"white",fontFamily:"monospace",fontSize:12,fontWeight:700}}>{i+1}. {s.serial}</div>
-              <div style={{color:"#6ee7b7",fontSize:11}}>📞 {s.phone||"รับหลังลงทะเบียน"}</div>
-              <div style={{color:"#a78bfa",fontSize:11}}>🔢 {s.trackingNo}</div>
-              {s.scannedAt&&<div style={{color:"#8b8fa8",fontSize:11}}>⏰ {new Date(s.scannedAt).toLocaleTimeString("th-TH")}</div>}
+    </div>}
+
+    <h4 style={{color:"#e2e8f0",fontSize:13,fontWeight:700,marginBottom:8}}>
+      {isToday?"✅ ลงทะเบียนวันนี้":"📋 ข้อมูลวันที่เลือก"} {histLoading?"⏳ กำลังโหลด...":"("+ts.length+" ราย)"}
+    </h4>
+
+    {histLoading
+      ?<div style={{textAlign:"center",padding:20,color:"#8b8fa8"}}>⏳ กำลังโหลดข้อมูลย้อนหลัง...</div>
+      :ts.length===0
+        ?<div style={{textAlign:"center",padding:20,color:"#8b8fa8"}}>ไม่มีข้อมูลลงทะเบียนในวันที่เลือก</div>
+        :CODES.filter(c=>tsByCode(c.code).length>0).map(c=>(
+          <div key={c.code||"none"} style={{marginBottom:14}}>
+            <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:6,padding:"6px 12px",background:"rgba(255,255,255,0.06)",borderRadius:8}}>
+              <span style={{fontSize:15}}>{c.emoji}</span>
+              <span style={{color:"#e2e8f0",fontWeight:700,fontSize:13}}>{c.label}</span>
+              <span style={{background:"rgba(167,139,250,0.2)",color:"#a78bfa",borderRadius:99,fontSize:11,fontWeight:700,padding:"1px 8px",marginLeft:"auto"}}>{tsByCode(c.code).length} ราย</span>
             </div>
-          ))}
-        </div>
-      ))
+            {tsByCode(c.code).map((s,i)=>(
+              <div key={s.serial} style={{background:"rgba(5,150,105,0.08)",border:"1px solid rgba(5,150,105,0.2)",borderRadius:10,padding:"10px 14px",marginBottom:6}}>
+                <div style={{color:"white",fontFamily:"monospace",fontSize:12,fontWeight:700}}>{i+1}. {s.serial}</div>
+                <div style={{color:"#6ee7b7",fontSize:11}}>📞 {s.phone||"รับหลังลงทะเบียน"}</div>
+                <div style={{color:"#a78bfa",fontSize:11}}>🔢 {s.trackingNo}</div>
+                {(s.scannedAt||s.registeredAt)&&<div style={{color:"#8b8fa8",fontSize:11}}>⏰ {new Date(Number(s.scannedAt||s.registeredAt)).toLocaleTimeString("th-TH")}</div>}
+              </div>
+            ))}
+          </div>
+        ))
     }
-    <h4 style={{color:"#e2e8f0",fontSize:13,fontWeight:700,margin:"16px 0 8px"}}>📅 สรุปรายวัน</h4>
+
+    {isToday&&<><h4 style={{color:"#e2e8f0",fontSize:13,fontWeight:700,margin:"16px 0 8px"}}>📅 สรุปรายวัน</h4>
     <div style={{overflowX:"auto"}}>
       <table style={{width:"100%",borderCollapse:"collapse"}}>
         <thead><tr>{["วันที่","เพิ่มซิม","ลงทะเบียน"].map(h=><th key={h} style={C.th}>{h}</th>)}</tr></thead>
         <tbody>{Object.entries(sm).sort((a,b)=>b[0].localeCompare(a[0])).map(([date,v])=>(
-          <tr key={date} style={{background:date===today?"rgba(5,150,105,0.08)":"transparent"}}>
-            <td style={{...C.td,color:date===today?"#6ee7b7":"#e2e8f0"}}>{date}</td>
+          <tr key={date} style={{background:date===today?"rgba(5,150,105,0.08)":"transparent",cursor:"pointer"}} onClick={()=>setSelDate(date)}>
+            <td style={{...C.td,color:date===today?"#6ee7b7":"#a5b4fc",textDecoration:"underline"}}>{date}</td>
             <td style={{...C.td,textAlign:"center"}}>{v.a}</td>
             <td style={{...C.td,textAlign:"center",color:"#6ee7b7"}}>{v.sc}</td>
           </tr>
         ))}</tbody>
       </table>
-    </div>
+      <div style={{color:"#8b8fa8",fontSize:11,textAlign:"center",marginTop:6}}>💡 แตะวันที่ในตารางเพื่อดูรายละเอียด</div>
+    </div></>}
   </div>;
 }
 
