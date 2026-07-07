@@ -550,9 +550,10 @@ function Summary({sims,bot,chat,simType,onRefresh}){
   },[selDate,isToday]);
 
   const getCode=s=>{
-    if(s.simCode)return s.simCode.toUpperCase();
+    // trackingNo สำคัญกว่า เพราะบอกเครือข่ายจริงๆ
     const first=(s.trackingNo||"").toString().toUpperCase().charAt(0);
     if(["K","L","A","D"].includes(first))return first;
+    if(s.simCode)return s.simCode.toUpperCase();
     return "";
   };
 
