@@ -28,18 +28,6 @@ const TYPES={
   free:{path:"/sims_free",ls:"sim_free_v1",label:"ซิมฟรีเดือนแรก",emoji:"🎁",color:"#059669"}
 };
 const toKey=s=>String(s).replace(/[.#$[\]]/g,"_");
-// ป้องกัน race condition: ถ้าในเครื่อง mark printed/scanned เป็น true ไปแล้ว
-// แต่ข้อมูลจาก Firebase ที่เพิ่ง fetch มายังไม่ทัน sync (ยังเป็น false/undefined)
-// ห้ามให้ข้อมูลเก่าจาก Firebase เขียนทับกลับเป็น false
-const mergeSticky=(local,remote)=>{
-  const merged={...local,...remote};
-  if(local&&local.printed&&!merged.printed)merged.printed=true;
-  if(local&&local.scannedByCustomer&&!merged.scannedByCustomer){
-    merged.scannedByCustomer=true;
-    merged.scannedAt=merged.scannedAt||local.scannedAt;
-  }
-  return merged;
-};
 const lsG=k=>{try{return localStorage.getItem(k)}catch(e){return null}};
 const lsS=(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}};
 const fbG=p=>fetch(FB+p+".json").then(r=>r.json());
@@ -51,13 +39,9 @@ const loadT=async t=>{
   const cfg=TYPES[t],raw=lsG(cfg.ls)||"[]";
   let loc=[];try{loc=JSON.parse(raw)}catch(e){}
   try{
-    // ใช้เฉพาะ path ปัจจุบัน (cfg.path) เป็น source of truth เท่านั้น
-    // ไม่ดึงพาธเก่า /sims มารวมอีกต่อไป เพราะมีข้อมูลค้าง (printed:false) ที่ทำให้ซิมที่พิมพ์แล้วโผล่กลับมาในหน้า "ยังไม่พิมพ์"
-    const d=await Promise.race([fbG(cfg.path),new Promise((_,r)=>setTimeout(()=>r(null),5000))]).catch(()=>null);
     const merged={};
-    if(d&&typeof d==="object"&&!d.error){
-      Object.values(d).filter(s=>s&&s.serial).forEach(s=>{merged[s.serial]=s;});
-    }
+    const d=await Promise.race([fbG(cfg.path),new Promise((_,r)=>setTimeout(()=>r(null),5000))]).catch(()=>null);
+    if(d&&typeof d==="object"&&!d.error){Object.values(d).filter(s=>s&&s.serial).forEach(s=>{merged[s.serial]=s;});}
     const fb=Object.values(merged);
     if(fb.length>0){
       const toFix=fb.filter(s=>s.scannedByCustomer&&!s.scannedAt);
@@ -693,48 +677,11 @@ function Summary({sims,bot,chat,simType,onRefresh}){
 
 function Settings({bot,chat,setBot,setChat,onSave}){
   const [b,setB]=useState(bot),[cc,setCC]=useState(chat);
-  const [msg,setMsg]=useState("");
-  const showMsg=t=>{setMsg(t);setTimeout(()=>setMsg(""),3000);};
-
-  const clearCache=()=>{
-    if(!confirm("ล้าง cache ทั้งหมดในเครื่องนี้?\n(ข้อมูลจะถูกโหลดใหม่จาก Firebase)"))return;
-    try{
-      localStorage.removeItem("sim_plain_v1");
-      localStorage.removeItem("sim_free_v1");
-    }catch(e){}
-    showMsg("✅ ล้าง cache แล้ว กำลัง reload...");
-    setTimeout(()=>window.location.reload(),1000);
-  };
-
-  const deleteLegacySims=async()=>{
-    if(!confirm("⚠️ ลบข้อมูลเก่าทั้งหมดใน /sims (พาธเก่า) จาก Firebase?\n\nนี่คือสาเหตุที่ซิมที่พิมพ์แล้วโผล่กลับมาในหน้า 'ยังไม่พิมพ์'\n\nข้อมูลในพาธปัจจุบัน /sims_plain และ /sims_free ไม่ได้รับผลกระทบ"))return;
-    showMsg("⏳ กำลังลบข้อมูลเก่า...");
-    try{
-      await fbD("/sims");
-      showMsg("✅ ลบข้อมูลเก่า /sims จาก Firebase แล้ว!");
-    }catch(e){showMsg("❌ เกิดข้อผิดพลาด: "+e.message);}
-  };
-
   return<div style={C.card}>
     <h3 style={C.h3}>⚙️ ตั้งค่า Telegram</h3>
     <div style={{marginBottom:12}}><div style={{color:"#94a3b8",fontSize:12,marginBottom:6}}>Bot Token</div><input style={C.inp} value={b} onChange={e=>setB(e.target.value)} placeholder="Bot Token..."/></div>
     <div style={{marginBottom:16}}><div style={{color:"#94a3b8",fontSize:12,marginBottom:6}}>Chat ID</div><input style={C.inp} value={cc} onChange={e=>setCC(e.target.value)} placeholder="Chat ID..."/></div>
     <button style={C.btnP} onClick={()=>{setBot(b);setChat(cc);lsS("tg_bot",b);lsS("tg_chat",cc);onSave();}}>💾 บันทึก</button>
-
-    <div style={{marginTop:24,borderTop:"1px solid rgba(255,255,255,0.08)",paddingTop:16}}>
-      <div style={{color:"#f87171",fontSize:13,fontWeight:700,marginBottom:10}}>🛠️ แก้ไขปัญหา</div>
-      <div style={{display:"flex",flexDirection:"column",gap:8}}>
-        <button onClick={deleteLegacySims} style={{...C.btnX,textAlign:"left",fontSize:13}}>
-          🗑️ ลบข้อมูลเก่า /sims จาก Firebase
-          <div style={{fontSize:11,fontWeight:400,color:"#fca5a5",marginTop:2}}>แก้ปัญหา: ซิมที่พิมพ์แล้วโผล่กลับมาในหน้า "ยังไม่พิมพ์"</div>
-        </button>
-        <button onClick={clearCache} style={{...C.btnS,textAlign:"left",fontSize:13}}>
-          🔄 ล้าง Cache เครื่องนี้ แล้ว Reload
-          <div style={{fontSize:11,fontWeight:400,color:"#94a3b8",marginTop:2}}>บังคับโหลดข้อมูลใหม่จาก Firebase</div>
-        </button>
-      </div>
-      {msg&&<div style={{marginTop:10,padding:"8px 12px",background:"rgba(255,255,255,0.06)",borderRadius:8,fontSize:13,color:"#a78bfa"}}>{msg}</div>}
-    </div>
   </div>;
 }
 function ArchivedTab(){
@@ -912,17 +859,13 @@ function App(){
   const fetchAll=useCallback(async()=>{
     try{
       const ym=new Date().toISOString().slice(0,7).replace("-","");
-      const [dp,,df,dh]=await Promise.all([
+      const [dp,df,dh]=await Promise.all([
         Promise.race([fbG("/sims_plain"),new Promise((_,r)=>setTimeout(()=>r(null),6000))]).catch(()=>null),
-        Promise.resolve(null),
         Promise.race([fbG("/sims_free"),new Promise((_,r)=>setTimeout(()=>r(null),6000))]).catch(()=>null),
         Promise.race([fbG("/history/"+ym),new Promise((_,r)=>setTimeout(()=>r(null),6000))]).catch(()=>null),
       ]);
-      // รวม plain + history (history = scanned แล้ว)
-      // ไม่ใช้พาธเก่า /sims อีกต่อไป เพราะมีข้อมูลค้าง (printed:false) ทำให้ซิมที่พิมพ์แล้วโผล่กลับมาในหน้า "ยังไม่พิมพ์"
       const mp={};
       if(dp&&typeof dp==="object"&&!dp.error)Object.values(dp).filter(s=>s&&s.serial).forEach(s=>{mp[s.serial]=s;});
-      // เพิ่ม history เข้า plain sims (mark scannedByCustomer=true เท่านั้น ไม่แตะฟิลด์อื่นเช่น printed)
       if(dh&&typeof dh==="object"&&!dh.error){
         Object.values(dh).filter(s=>s&&s.serial).forEach(s=>{
           if(!mp[s.serial])mp[s.serial]={...s,scannedByCustomer:true};
@@ -932,7 +875,7 @@ function App(){
       const pa=Object.values(mp);
       if(pa.length)setPSims(old=>{
         const om={};old.forEach(s=>{om[s.serial]=s;});
-        pa.forEach(s=>{om[s.serial]=mergeSticky(om[s.serial],s);});
+        pa.forEach(s=>{const loc=om[s.serial];om[s.serial]={...loc,...s,printed:loc&&loc.printed?true:!!s.printed,scannedByCustomer:loc&&loc.scannedByCustomer?true:!!s.scannedByCustomer,scannedAt:(loc&&loc.scannedAt)||s.scannedAt};});
         const next=Object.values(om);
         lsS(TYPES.plain.ls,JSON.stringify(next));
         return next;
@@ -941,7 +884,7 @@ function App(){
         const fa=Object.values(df).filter(s=>s&&s.serial);
         if(fa.length)setFSims(old=>{
           const om={};old.forEach(s=>{om[s.serial]=s;});
-          fa.forEach(s=>{om[s.serial]=mergeSticky(om[s.serial],s);});
+          fa.forEach(s=>{const loc=om[s.serial];om[s.serial]={...loc,...s,printed:loc&&loc.printed?true:!!s.printed,scannedByCustomer:loc&&loc.scannedByCustomer?true:!!s.scannedByCustomer,scannedAt:(loc&&loc.scannedAt)||s.scannedAt};});
           const next=Object.values(om);
           lsS(TYPES.free.ls,JSON.stringify(next));
           return next;
@@ -950,9 +893,8 @@ function App(){
     }catch(e){}
   },[]);
 
-  // บล็อก fetchAll ชั่วคราวหลัง markP เพื่อป้องกัน race condition
+  // ป้องกัน fetchAll ทับข้อมูล printed หลัง markP
   const fetchBlockRef=useRef(false);
-
   // polling ทุก 10 วินาที + กลับมาจากหน้าอื่น
   useEffect(()=>{
     const id=setInterval(()=>{if(!fetchBlockRef.current)fetchAll();},10000);
@@ -984,7 +926,6 @@ function App(){
   };
 
   const markP=serials=>{
-    // บล็อก fetchAll 5 วิ เพื่อให้ Firebase บันทึกเสร็จก่อนที่จะดึงข้อมูลกลับมา
     fetchBlockRef.current=true;
     setSims(prev=>{
       const u=prev.map(s=>serials.includes(s.serial)?{...s,printed:true}:s);
@@ -993,7 +934,7 @@ function App(){
       serials.forEach(s=>updFB(s,{printed:true},st));
       return u;
     });
-    // ปลดบล็อกหลัง 5 วิ (Firebase น่าจะ sync เสร็จแล้ว)
+    // ปลดบล็อกหลัง 5 วิ
     setTimeout(()=>{fetchBlockRef.current=false;},5000);
     t3("✅ ย้ายไปพิมพ์แล้ว "+serials.length+" รายการ");
   };
