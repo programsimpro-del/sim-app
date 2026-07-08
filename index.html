@@ -527,22 +527,30 @@ function Summary({sims,bot,chat,simType,onRefresh}){
     const ym=selDate.slice(0,7).replace("-","");
     const dayStart=new Date(selDate+"T00:00:00+07:00").getTime();
     const dayEnd=dayStart+86400000;
+
+    // โหลดทุก source พร้อมกัน: history เดือนนั้น + sims ทั้งหมด
     Promise.all([
       fbG("/history/"+ym).catch(()=>null),
       fbG("/sims_plain").catch(()=>null),
       fbG("/sims").catch(()=>null),
-    ]).then(([dh,dp,dl])=>{
+      fbG("/sims_free").catch(()=>null),
+    ]).then(([dh,dp,dl,df])=>{
       const seen=new Set();
       const all=[];
-      [dh,dp,dl].forEach(d=>{
+      const tryAdd=s=>{
+        if(!s||!s.serial||seen.has(s.serial))return;
+        seen.add(s.serial);
+        if(!s.scannedByCustomer)return;
+        // ลอง scannedAt, registeredAt, และถ้าไม่มีให้ข้าม
+        const t=Number(s.scannedAt||s.registeredAt||0);
+        if(t>0&&t>=dayStart&&t<dayEnd)all.push(s);
+        else if(t===0&&s.scannedByCustomer){
+          // ซิมเก่าไม่มี timestamp — ข้ามไป ไม่สามารถระบุวันได้
+        }
+      };
+      [dh,dp,dl,df].forEach(d=>{
         if(!d||typeof d!=="object"||d.error)return;
-        Object.values(d).filter(s=>s&&s.serial).forEach(s=>{
-          if(seen.has(s.serial))return;
-          seen.add(s.serial);
-          if(!s.scannedByCustomer)return;
-          const t=Number(s.scannedAt||s.registeredAt||0);
-          if(t>=dayStart&&t<dayEnd)all.push(s);
-        });
+        Object.values(d).forEach(tryAdd);
       });
       setHistSims(all);
       setHistLoading(false);
@@ -885,7 +893,11 @@ function App(){
       const pa=Object.values(mp);
       if(pa.length)setPSims(old=>{
         const om={};old.forEach(s=>{om[s.serial]=s;});
-        pa.forEach(s=>{om[s.serial]={...om[s.serial],...s};});
+        pa.forEach(s=>{
+          const ex=om[s.serial];
+          // รักษา printed จาก local state เสมอ ไม่ให้ Firebase ทับ
+          om[s.serial]={...om[s.serial],...s,printed:ex?ex.printed:s.printed||false};
+        });
         const next=Object.values(om);
         lsS(TYPES.plain.ls,JSON.stringify(next));
         return next;
@@ -894,7 +906,10 @@ function App(){
         const fa=Object.values(df).filter(s=>s&&s.serial);
         if(fa.length)setFSims(old=>{
           const om={};old.forEach(s=>{om[s.serial]=s;});
-          fa.forEach(s=>{om[s.serial]={...om[s.serial],...s};});
+          fa.forEach(s=>{
+            const ex=om[s.serial];
+            om[s.serial]={...om[s.serial],...s,printed:ex?ex.printed:s.printed||false};
+          });
           const next=Object.values(om);
           lsS(TYPES.free.ls,JSON.stringify(next));
           return next;
@@ -934,10 +949,11 @@ function App(){
   };
 
   const markP=serials=>{
+    // เขียน Firebase ทันทีทุก serial
+    serials.forEach(s=>updFB(s,{printed:true},st));
     setSims(prev=>{
       const u=prev.map(s=>serials.includes(s.serial)?{...s,printed:true}:s);
       lsS(TYPES[st].ls,JSON.stringify(u));
-      setTimeout(()=>serials.forEach(s=>updFB(s,{printed:true},st)),100);
       return u;
     });
     t3("✅ ย้ายไปพิมพ์แล้ว "+serials.length+" รายการ");
