@@ -523,11 +523,10 @@ function Summary({sims,bot,chat,simType,onRefresh}){
     Promise.all([
       fbG("/history/"+ym).catch(()=>null),
       fbG("/sims_plain").catch(()=>null),
-      fbG("/sims").catch(()=>null),
-    ]).then(([dh,dp,dl])=>{
+    ]).then(([dh,dp])=>{
       const seen=new Set();
       const all=[];
-      [dh,dp,dl].forEach(d=>{
+      [dh,dp].forEach(d=>{
         if(!d||typeof d!=="object"||d.error)return;
         Object.values(d).filter(s=>s&&s.serial).forEach(s=>{
           if(seen.has(s.serial))return;
@@ -716,7 +715,7 @@ function ArchivedTab(){
   };
 
   const find=async s=>{
-    const ps=["/sims_archived","/sims_plain_archived","/sims_free_archived","/sims","/sims_plain","/sims_free"];
+    const ps=["/sims_archived","/sims_plain_archived","/sims_free_archived","/sims_plain","/sims_free"];
     for(const p of ps){try{const d=await fbG(p+"/"+toKey(s));if(d&&d.serial)return d;}catch(e){}}
     return null;
   };
@@ -733,7 +732,7 @@ function ArchivedTab(){
 
   const mark=s=>{
     const now=Date.now();
-    ["/sims_archived","/sims_plain_archived","/sims_free_archived","/sims","/sims_plain","/sims_free"]
+    ["/sims_archived","/sims_plain_archived","/sims_free_archived","/sims_plain","/sims_free"]
       .forEach(p=>fbP(p+"/"+toKey(s),{scannedByCustomer:true,scannedAt:now}).catch(()=>{}));
     setSims(prev=>prev.map(x=>x.serial===s?{...x,scannedByCustomer:true}:x));
     setRes(prev=>prev.map(x=>x.s===s&&x.d?{...x,d:{...x.d,scannedByCustomer:true}}:x));
