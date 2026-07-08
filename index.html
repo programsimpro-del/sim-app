@@ -56,7 +56,9 @@ const loadT=async t=>{
       Promise.race([fbG(p),new Promise((_,r)=>setTimeout(()=>r(null),5000))]).catch(()=>null)
     ));
     const merged={};
-    results.forEach(d=>{
+    // สำคัญ: ประมวลผลพาธเก่า (/sims) ก่อน แล้วให้ path ปัจจุบัน (cfg.path) เขียนทับทีหลังเสมอ
+    // ป้องกันข้อมูลเก่าที่ค้างอยู่ใน /sims (เช่น printed:false) มาทับสถานะล่าสุดที่ถูกต้อง
+    results.slice().reverse().forEach(d=>{
       if(d&&typeof d==="object"&&!d.error){
         Object.values(d).filter(s=>s&&s.serial).forEach(s=>{merged[s.serial]=s;});
       }
@@ -885,8 +887,9 @@ function App(){
         Promise.race([fbG("/history/"+ym),new Promise((_,r)=>setTimeout(()=>r(null),6000))]).catch(()=>null),
       ]);
       // รวม plain + legacy + history (history = scanned แล้ว)
+      // สำคัญ: ประมวลผลพาธเก่า (/sims) ก่อน แล้วให้ /sims_plain (ปัจจุบัน) เขียนทับทีหลังเสมอ
       const mp={};
-      [dp,dl].forEach(d=>{if(d&&typeof d==="object"&&!d.error)Object.values(d).filter(s=>s&&s.serial).forEach(s=>{mp[s.serial]={...mp[s.serial],...s};});});
+      [dl,dp].forEach(d=>{if(d&&typeof d==="object"&&!d.error)Object.values(d).filter(s=>s&&s.serial).forEach(s=>{mp[s.serial]={...mp[s.serial],...s};});});
       // เพิ่ม history เข้า plain sims (mark scannedByCustomer=true)
       if(dh&&typeof dh==="object"&&!dh.error){
         Object.values(dh).filter(s=>s&&s.serial).forEach(s=>{
