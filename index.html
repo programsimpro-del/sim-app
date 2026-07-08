@@ -893,140 +893,21 @@ function App(){
     }catch(e){}
   },[]);
 
-  // ป้องกัน fetchAll ทับข้อมูล printed หลัง markP
   const fetchBlockRef=useRef(false);
-  // polling ทุก 10 วินาที + กลับมาจากหน้าอื่น
   useEffect(()=>{
     const id=setInterval(()=>{if(!fetchBlockRef.current)fetchAll();},10000);
     const onVis=()=>{if(!document.hidden&&!fetchBlockRef.current)fetchAll();};
     document.addEventListener("visibilitychange",onVis);
     return()=>{clearInterval(id);document.removeEventListener("visibilitychange",onVis);};
   },[fetchAll]);
-
-  const t3=(msg,type)=>{setToast({msg,type:"ok",...(type?{type}:{})});setTimeout(()=>setToast(null),3000);};
-
-  const addSim=(serial,rsv,phone,code)=>{
-    if(sims.find(s=>s.serial===serial)){t3("⚠️ "+serial+" มีอยู่แล้ว","warn");return;}
-    const raw=rsv||genNo(new Set(sims.map(s=>s.trackingNo)));
-    const trk=code?code+raw:raw;
-    const ns={serial,trackingNo:trk,phone:phone||"",simCode:code||"",simType:st,scannedByCustomer:false,scannedAt:null,createdAt:Date.now(),printed:false};
-    setSims(prev=>{const u=[ns,...prev];lsS(TYPES[st].ls,JSON.stringify(u));addFB(ns,st);return u;});
-    t3("✅ เพิ่มซิม (เลขติดตาม: "+trk+")");
-  };
-
-  const delSim=serial=>{
-    if(!confirm("ลบซิม "+serial+" ?"))return;
-    setSims(prev=>{const u=prev.filter(s=>s.serial!==serial);lsS(TYPES[st].ls,JSON.stringify(u));delFB(serial,st);return u;});
-    t3("🗑️ ลบแล้ว","warn");
-  };
-
-  const updPhone=(serial,phone)=>{
-    setSims(prev=>{const u=prev.map(s=>s.serial===serial?{...s,phone}:s);saveT(u,st);updFB(serial,{phone},st);return u;});
-    t3(phone?"✅ บันทึกเบอร์ "+phone:"✅ ลบเบอร์แล้ว");
-  };
-
   const markP=serials=>{
     fetchBlockRef.current=true;
     setSims(prev=>{
       const u=prev.map(s=>serials.includes(s.serial)?{...s,printed:true}:s);
       lsS(TYPES[st].ls,JSON.stringify(u));
-      // บันทึก Firebase ทันที ไม่ delay
       serials.forEach(s=>updFB(s,{printed:true},st));
       return u;
     });
-    // ปลดบล็อกหลัง 5 วิ
     setTimeout(()=>{fetchBlockRef.current=false;},5000);
     t3("✅ ย้ายไปพิมพ์แล้ว "+serials.length+" รายการ");
   };
-
-  const unmarkP=serial=>{
-    setSims(prev=>{const u=prev.map(s=>s.serial===serial?{...s,printed:false}:s);saveT(u,st);updFB(serial,{printed:false},st);return u;});
-    t3("↩️ ย้ายกลับยังไม่พิมพ์");
-  };
-
-  const markSc=serial=>{
-    const now=Date.now();
-    setSims(prev=>prev.map(s=>{
-      if(s.serial!==serial)return s;
-      tgSend(bot,chat,"🔔 ลูกค้าสแกน QR Code แล้ว!\n📋 เลขซีเรียลซิม: "+s.serial+"\n📞 เบอร์โทร: "+(s.phone||"รับหลังลงทะเบียนซิม")+"\n🔢 เลขติดตาม: "+s.trackingNo+"\n⏰ เวลา: "+new Date(now).toLocaleString("th-TH")+"\n\n✅ กรุณาอัปเดตสถานะในแอพ");
-      updFB(s.serial,{scannedByCustomer:true,scannedAt:now},st);
-      return{...s,scannedByCustomer:true,scannedAt:now};
-    }));
-    t3("✅ อัปเดตสถานะแล้ว");
-  };
-
-  const pc=sims.filter(s=>!s.scannedByCustomer).length;
-  const sc=sims.filter(s=>s.scannedByCustomer).length;
-
-  const tabs=[
-    {id:"scanner",label:"📷 ยิงซิม"},
-    {id:"qr",label:"🔲 QR Code ("+sims.length+")"},
-
-    {id:"list",label:"📋 รายการ"},
-    {id:"summary",label:"📊 สรุป"},
-    {id:"settings",label:"⚙️ ตั้งค่า"},{id:"archived",label:"🗃️ Archive"},
-  ];
-
-  if(loading)return(
-    <div style={{minHeight:"100vh",background:"linear-gradient(160deg,#0a0a1a,#0f172a,#1a0a2e)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",color:"white",fontFamily:"sans-serif",gap:16}}>
-      <div style={{fontSize:52}}>📶</div>
-      <div style={{fontSize:18,fontWeight:700}}>SIM Tracker</div>
-      <div style={{color:"#8b8fa8",fontSize:13}}>กำลังโหลดข้อมูลจาก Firebase...</div>
-      <div style={{width:36,height:36,border:"3px solid rgba(255,255,255,0.1)",borderTop:"3px solid #a78bfa",borderRadius:"50%",animation:"spin 1s linear infinite"}}/>
-    </div>
-  );
-
-  return(
-    <div style={{minHeight:"100vh"}}>
-      {toast&&<div style={{position:"fixed",top:20,right:16,zIndex:9999,background:toast.type==="ok"?"#059669":"#d97706",color:"white",padding:"10px 18px",borderRadius:12,fontWeight:600,fontSize:14,boxShadow:"0 4px 20px rgba(0,0,0,0.4)"}}>{toast.msg}</div>}
-      {modal&&<QRModal sim={modal} bot={bot} chat={chat} onClose={()=>setModal(null)}/>}
-
-      <div style={{background:"rgba(15,15,40,0.95)",backdropFilter:"blur(20px)",borderBottom:"1px solid rgba(255,255,255,0.08)",padding:"12px 16px",display:"flex",alignItems:"center",gap:12,position:"sticky",top:0,zIndex:100}}>
-        <div style={{width:40,height:40,background:"linear-gradient(135deg,#4f46e5,#7c3aed)",borderRadius:12,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>📶</div>
-        <div style={{flex:1}}><div style={{color:"white",fontWeight:800,fontSize:16}}>SIM Tracker</div><div style={{color:"#8b8fa8",fontSize:11}}>ระบบติดตามการเปิดใช้งานซิม</div></div>
-        <div style={{textAlign:"center"}}><div style={{color:"#a78bfa",fontWeight:800,fontSize:20}}>{sims.length}</div><div style={{color:"#8b8fa8",fontSize:10}}>ซิมทั้งหมด</div></div>
-        <div style={{textAlign:"center"}}><div style={{color:"#6ee7b7",fontWeight:800,fontSize:20}}>{sims.filter(s=>{if(!s.scannedByCustomer)return false;if(!s.scannedAt)return false;try{return new Date(s.scannedAt).toISOString().slice(0,10)===todayS();}catch(e){return false;}}).length}</div><div style={{color:"#8b8fa8",fontSize:10}}>สแกนวันนี้</div></div>
-      </div>
-
-      <div style={{background:"rgba(0,0,0,0.3)",borderBottom:"1px solid rgba(255,255,255,0.08)",padding:"8px 12px",display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-        <span style={{color:"#94a3b8",fontSize:12,fontWeight:600}}>ประเภทซิม:</span>
-        {Object.entries(TYPES).map(([key,cfg])=>(
-          <button key={key} onClick={()=>{setSt(key);setTab("scanner");}}
-            style={{padding:"7px 18px",border:"none",borderRadius:20,cursor:"pointer",fontFamily:"inherit",fontWeight:700,fontSize:13,
-              background:st===key?cfg.color:"rgba(255,255,255,0.08)",
-              color:st===key?"white":"#8b8fa8",
-              outline:st===key?"2px solid "+cfg.color:"none"}}>
-            {cfg.emoji} {cfg.label}
-            {st===key&&<span style={{marginLeft:6,background:"rgba(255,255,255,0.2)",borderRadius:99,padding:"1px 7px",fontSize:11}}>{sims.length}</span>}
-          </button>
-        ))}
-      </div>
-
-      <div style={{display:"flex",overflowX:"auto",borderBottom:"1px solid rgba(255,255,255,0.08)",background:"rgba(15,15,40,0.6)"}}>
-        {tabs.map(t=>(
-          <button key={t.id} onClick={()=>setTab(t.id)}
-            style={{padding:"12px 14px",border:"none",borderBottom:tab===t.id?"2px solid #a78bfa":"2px solid transparent",background:"transparent",color:tab===t.id?"#a78bfa":"#64748b",cursor:"pointer",fontFamily:"inherit",fontWeight:700,fontSize:12,whiteSpace:"nowrap"}}>
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      <div style={{padding:"0 0 80px"}}>
-        {tab==="scanner"&&<Scanner onScan={addSim} sims={sims}/>}
-        {tab==="qr"&&<QRMain sims={sims} bot={bot} chat={chat} onMarkPrinted={markP} onUnmarkPrinted={unmarkP} onDeleteSim={delSim} onPreview={s=>setModal(s)}/>}
-        {tab==="pending"&&<PendingTab sims={sims} onMarkScanned={markSc} onPreview={s=>setModal(s)}/>}
-        {tab==="scanned"&&<ScannedTab sims={sims}/>}
-        {tab==="list"&&<SimList sims={sims} onDelete={delSim} onUpdatePhone={updPhone}/>}
-        {tab==="summary"&&<Summary sims={sims} bot={bot} chat={chat} simType={st} onRefresh={fetchAll}/>}
-        {tab==="archived"&&<ArchivedTab/>}
-        {tab==="settings"&&<Settings bot={bot} chat={chat} setBot={setBot} setChat={setChat} onSave={()=>t3("✅ บันทึกแล้ว")}/>}
-      </div>
-    </div>
-  );
-}
-
-const root=ReactDOM.createRoot(document.getElementById("root"));
-root.render(<App/>);
-</script>
-</body>
-</html>
