@@ -28,6 +28,18 @@ const TYPES={
   free:{path:"/sims_free",ls:"sim_free_v1",label:"ซิมฟรีเดือนแรก",emoji:"🎁",color:"#059669"}
 };
 const toKey=s=>String(s).replace(/[.#$[\]]/g,"_");
+// ป้องกัน race condition: ถ้าในเครื่อง mark printed/scanned เป็น true ไปแล้ว
+// แต่ข้อมูลจาก Firebase ที่เพิ่ง fetch มายังไม่ทัน sync (ยังเป็น false/undefined)
+// ห้ามให้ข้อมูลเก่าจาก Firebase เขียนทับกลับเป็น false
+const mergeSticky=(local,remote)=>{
+  const merged={...local,...remote};
+  if(local&&local.printed&&!merged.printed)merged.printed=true;
+  if(local&&local.scannedByCustomer&&!merged.scannedByCustomer){
+    merged.scannedByCustomer=true;
+    merged.scannedAt=merged.scannedAt||local.scannedAt;
+  }
+  return merged;
+};
 const lsG=k=>{try{return localStorage.getItem(k)}catch(e){return null}};
 const lsS=(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}};
 const fbG=p=>fetch(FB+p+".json").then(r=>r.json());
@@ -885,7 +897,7 @@ function App(){
       const pa=Object.values(mp);
       if(pa.length)setPSims(old=>{
         const om={};old.forEach(s=>{om[s.serial]=s;});
-        pa.forEach(s=>{om[s.serial]={...om[s.serial],...s};});
+        pa.forEach(s=>{om[s.serial]=mergeSticky(om[s.serial],s);});
         const next=Object.values(om);
         lsS(TYPES.plain.ls,JSON.stringify(next));
         return next;
@@ -894,7 +906,7 @@ function App(){
         const fa=Object.values(df).filter(s=>s&&s.serial);
         if(fa.length)setFSims(old=>{
           const om={};old.forEach(s=>{om[s.serial]=s;});
-          fa.forEach(s=>{om[s.serial]={...om[s.serial],...s};});
+          fa.forEach(s=>{om[s.serial]=mergeSticky(om[s.serial],s);});
           const next=Object.values(om);
           lsS(TYPES.free.ls,JSON.stringify(next));
           return next;
