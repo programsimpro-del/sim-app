@@ -693,11 +693,48 @@ function Summary({sims,bot,chat,simType,onRefresh}){
 
 function Settings({bot,chat,setBot,setChat,onSave}){
   const [b,setB]=useState(bot),[cc,setCC]=useState(chat);
+  const [msg,setMsg]=useState("");
+  const showMsg=t=>{setMsg(t);setTimeout(()=>setMsg(""),3000);};
+
+  const clearCache=()=>{
+    if(!confirm("ล้าง cache ทั้งหมดในเครื่องนี้?\n(ข้อมูลจะถูกโหลดใหม่จาก Firebase)"))return;
+    try{
+      localStorage.removeItem("sim_plain_v1");
+      localStorage.removeItem("sim_free_v1");
+    }catch(e){}
+    showMsg("✅ ล้าง cache แล้ว กำลัง reload...");
+    setTimeout(()=>window.location.reload(),1000);
+  };
+
+  const deleteLegacySims=async()=>{
+    if(!confirm("⚠️ ลบข้อมูลเก่าทั้งหมดใน /sims (พาธเก่า) จาก Firebase?\n\nนี่คือสาเหตุที่ซิมที่พิมพ์แล้วโผล่กลับมาในหน้า 'ยังไม่พิมพ์'\n\nข้อมูลในพาธปัจจุบัน /sims_plain และ /sims_free ไม่ได้รับผลกระทบ"))return;
+    showMsg("⏳ กำลังลบข้อมูลเก่า...");
+    try{
+      await fbD("/sims");
+      showMsg("✅ ลบข้อมูลเก่า /sims จาก Firebase แล้ว!");
+    }catch(e){showMsg("❌ เกิดข้อผิดพลาด: "+e.message);}
+  };
+
   return<div style={C.card}>
     <h3 style={C.h3}>⚙️ ตั้งค่า Telegram</h3>
     <div style={{marginBottom:12}}><div style={{color:"#94a3b8",fontSize:12,marginBottom:6}}>Bot Token</div><input style={C.inp} value={b} onChange={e=>setB(e.target.value)} placeholder="Bot Token..."/></div>
     <div style={{marginBottom:16}}><div style={{color:"#94a3b8",fontSize:12,marginBottom:6}}>Chat ID</div><input style={C.inp} value={cc} onChange={e=>setCC(e.target.value)} placeholder="Chat ID..."/></div>
     <button style={C.btnP} onClick={()=>{setBot(b);setChat(cc);lsS("tg_bot",b);lsS("tg_chat",cc);onSave();}}>💾 บันทึก</button>
+
+    <div style={{marginTop:24,borderTop:"1px solid rgba(255,255,255,0.08)",paddingTop:16}}>
+      <div style={{color:"#f87171",fontSize:13,fontWeight:700,marginBottom:10}}>🛠️ แก้ไขปัญหา</div>
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        <button onClick={deleteLegacySims} style={{...C.btnX,textAlign:"left",fontSize:13}}>
+          🗑️ ลบข้อมูลเก่า /sims จาก Firebase
+          <div style={{fontSize:11,fontWeight:400,color:"#fca5a5",marginTop:2}}>แก้ปัญหา: ซิมที่พิมพ์แล้วโผล่กลับมาในหน้า "ยังไม่พิมพ์"</div>
+        </button>
+        <button onClick={clearCache} style={{...C.btnS,textAlign:"left",fontSize:13}}>
+          🔄 ล้าง Cache เครื่องนี้ แล้ว Reload
+          <div style={{fontSize:11,fontWeight:400,color:"#94a3b8",marginTop:2}}>บังคับโหลดข้อมูลใหม่จาก Firebase</div>
+        </button>
+      </div>
+      {msg&&<div style={{marginTop:10,padding:"8px 12px",background:"rgba(255,255,255,0.06)",borderRadius:8,fontSize:13,color:"#a78bfa"}}>{msg}</div>}
+    </div>
   </div>;
 }
 function ArchivedTab(){
