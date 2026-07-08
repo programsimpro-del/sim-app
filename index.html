@@ -950,10 +950,13 @@ function App(){
     }catch(e){}
   },[]);
 
+  // บล็อก fetchAll ชั่วคราวหลัง markP เพื่อป้องกัน race condition
+  const fetchBlockRef=useRef(false);
+
   // polling ทุก 10 วินาที + กลับมาจากหน้าอื่น
   useEffect(()=>{
-    const id=setInterval(fetchAll,10000);
-    const onVis=()=>{if(!document.hidden)fetchAll();};
+    const id=setInterval(()=>{if(!fetchBlockRef.current)fetchAll();},10000);
+    const onVis=()=>{if(!document.hidden&&!fetchBlockRef.current)fetchAll();};
     document.addEventListener("visibilitychange",onVis);
     return()=>{clearInterval(id);document.removeEventListener("visibilitychange",onVis);};
   },[fetchAll]);
@@ -981,12 +984,17 @@ function App(){
   };
 
   const markP=serials=>{
+    // บล็อก fetchAll 5 วิ เพื่อให้ Firebase บันทึกเสร็จก่อนที่จะดึงข้อมูลกลับมา
+    fetchBlockRef.current=true;
     setSims(prev=>{
       const u=prev.map(s=>serials.includes(s.serial)?{...s,printed:true}:s);
       lsS(TYPES[st].ls,JSON.stringify(u));
-      setTimeout(()=>serials.forEach(s=>updFB(s,{printed:true},st)),100);
+      // บันทึก Firebase ทันที ไม่ delay
+      serials.forEach(s=>updFB(s,{printed:true},st));
       return u;
     });
+    // ปลดบล็อกหลัง 5 วิ (Firebase น่าจะ sync เสร็จแล้ว)
+    setTimeout(()=>{fetchBlockRef.current=false;},5000);
     t3("✅ ย้ายไปพิมพ์แล้ว "+serials.length+" รายการ");
   };
 
