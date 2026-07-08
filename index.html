@@ -51,18 +51,13 @@ const loadT=async t=>{
   const cfg=TYPES[t],raw=lsG(cfg.ls)||"[]";
   let loc=[];try{loc=JSON.parse(raw)}catch(e){}
   try{
-    const paths=[cfg.path,...(t==="plain"?["/sims"]:[])];
-    const results=await Promise.all(paths.map(p=>
-      Promise.race([fbG(p),new Promise((_,r)=>setTimeout(()=>r(null),5000))]).catch(()=>null)
-    ));
+    // ใช้เฉพาะ path ปัจจุบัน (cfg.path) เป็น source of truth เท่านั้น
+    // ไม่ดึงพาธเก่า /sims มารวมอีกต่อไป เพราะมีข้อมูลค้าง (printed:false) ที่ทำให้ซิมที่พิมพ์แล้วโผล่กลับมาในหน้า "ยังไม่พิมพ์"
+    const d=await Promise.race([fbG(cfg.path),new Promise((_,r)=>setTimeout(()=>r(null),5000))]).catch(()=>null);
     const merged={};
-    // สำคัญ: ประมวลผลพาธเก่า (/sims) ก่อน แล้วให้ path ปัจจุบัน (cfg.path) เขียนทับทีหลังเสมอ
-    // ป้องกันข้อมูลเก่าที่ค้างอยู่ใน /sims (เช่น printed:false) มาทับสถานะล่าสุดที่ถูกต้อง
-    results.slice().reverse().forEach(d=>{
-      if(d&&typeof d==="object"&&!d.error){
-        Object.values(d).filter(s=>s&&s.serial).forEach(s=>{merged[s.serial]=s;});
-      }
-    });
+    if(d&&typeof d==="object"&&!d.error){
+      Object.values(d).filter(s=>s&&s.serial).forEach(s=>{merged[s.serial]=s;});
+    }
     const fb=Object.values(merged);
     if(fb.length>0){
       const toFix=fb.filter(s=>s.scannedByCustomer&&!s.scannedAt);
@@ -880,21 +875,21 @@ function App(){
   const fetchAll=useCallback(async()=>{
     try{
       const ym=new Date().toISOString().slice(0,7).replace("-","");
-      const [dp,dl,df,dh]=await Promise.all([
+      const [dp,,df,dh]=await Promise.all([
         Promise.race([fbG("/sims_plain"),new Promise((_,r)=>setTimeout(()=>r(null),6000))]).catch(()=>null),
-        Promise.race([fbG("/sims"),new Promise((_,r)=>setTimeout(()=>r(null),6000))]).catch(()=>null),
+        Promise.resolve(null),
         Promise.race([fbG("/sims_free"),new Promise((_,r)=>setTimeout(()=>r(null),6000))]).catch(()=>null),
         Promise.race([fbG("/history/"+ym),new Promise((_,r)=>setTimeout(()=>r(null),6000))]).catch(()=>null),
       ]);
-      // รวม plain + legacy + history (history = scanned แล้ว)
-      // สำคัญ: ประมวลผลพาธเก่า (/sims) ก่อน แล้วให้ /sims_plain (ปัจจุบัน) เขียนทับทีหลังเสมอ
+      // รวม plain + history (history = scanned แล้ว)
+      // ไม่ใช้พาธเก่า /sims อีกต่อไป เพราะมีข้อมูลค้าง (printed:false) ทำให้ซิมที่พิมพ์แล้วโผล่กลับมาในหน้า "ยังไม่พิมพ์"
       const mp={};
-      [dl,dp].forEach(d=>{if(d&&typeof d==="object"&&!d.error)Object.values(d).filter(s=>s&&s.serial).forEach(s=>{mp[s.serial]={...mp[s.serial],...s};});});
-      // เพิ่ม history เข้า plain sims (mark scannedByCustomer=true)
+      if(dp&&typeof dp==="object"&&!dp.error)Object.values(dp).filter(s=>s&&s.serial).forEach(s=>{mp[s.serial]=s;});
+      // เพิ่ม history เข้า plain sims (mark scannedByCustomer=true เท่านั้น ไม่แตะฟิลด์อื่นเช่น printed)
       if(dh&&typeof dh==="object"&&!dh.error){
         Object.values(dh).filter(s=>s&&s.serial).forEach(s=>{
           if(!mp[s.serial])mp[s.serial]={...s,scannedByCustomer:true};
-          else mp[s.serial]={...mp[s.serial],...s,scannedByCustomer:true};
+          else mp[s.serial]={...mp[s.serial],scannedByCustomer:true,scannedAt:mp[s.serial].scannedAt||s.scannedAt};
         });
       }
       const pa=Object.values(mp);
