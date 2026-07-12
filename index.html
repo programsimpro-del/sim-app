@@ -518,23 +518,31 @@ function Summary({sims,bot,chat,simType}){
   const endOfDay=startOfDay+86400000;
   const ym=selDate.slice(0,7).replace("-","");
 
+  const [debugInfo,setDebugInfo]=useState("");
+
   // โหลดข้อมูลจากทุก path รวม archived และ history หลายเดือน
   const loadAll=useCallback(async()=>{
     setLoadingData(true);
+    setDebugInfo("⏳ กำลังโหลด...");
     try{
-      // สร้าง history path ย้อนหลัง 3 เดือน เพื่อไม่ตกหล่น
+      // history ย้อนหลัง 6 เดือน
       const histPaths=[];
-      for(let i=0;i<3;i++){
+      for(let i=0;i<6;i++){
         const d=new Date(selDate+"T12:00:00+07:00");
         d.setMonth(d.getMonth()-i);
         histPaths.push("/history/"+d.toISOString().slice(0,7).replace("-",""));
       }
-      const paths=["/sims_plain","/sims_free","/sims_plain_archived","/sims_free_archived","/sims",...histPaths];
-      const results=await Promise.all(paths.map(p=>Promise.race([fbG(p),new Promise((_,r)=>setTimeout(()=>r(null),8000))]).catch(()=>null)));
+      const allPaths=["/sims_plain","/sims_free","/sims_plain_archived","/sims_free_archived","/sims",...histPaths];
+      const results=await Promise.all(allPaths.map(p=>
+        Promise.race([fbG(p),new Promise((_,r)=>setTimeout(()=>r(null),8000))]).catch(()=>null)
+      ));
       const map={};
-      results.forEach(d=>{
-        if(!d||typeof d!=="object"||d.error)return;
-        Object.values(d).filter(s=>s&&s.serial).forEach(s=>{
+      const pathCounts=[];
+      results.forEach((d,i)=>{
+        if(!d||typeof d!=="object"||d.error){pathCounts.push(allPaths[i]+":null");return;}
+        const vals=Object.values(d).filter(s=>s&&s.serial);
+        pathCounts.push(allPaths[i]+":"+vals.length);
+        vals.forEach(s=>{
           const ex=map[s.serial];
           if(!ex)map[s.serial]={...s};
           else map[s.serial]={...ex,...s,
@@ -544,14 +552,23 @@ function Summary({sims,bot,chat,simType}){
           };
         });
       });
-      // รวมกับ sims ใน state ปัจจุบัน
       sims.forEach(s=>{
         const ex=map[s.serial];
         if(!ex)map[s.serial]={...s};
         else map[s.serial]={...ex,...s,scannedByCustomer:ex.scannedByCustomer||!!s.scannedByCustomer,scannedAt:ex.scannedAt||s.scannedAt};
       });
-      setAllScanned(Object.values(map));
-    }catch(e){}
+      const all=Object.values(map);
+      setAllScanned(all);
+      // debug: นับยอดในวันที่เลือก
+      const dayCount=all.filter(s=>{
+        if(!s.scannedByCustomer&&!s.tgNotified)return false;
+        const t=Number(s.scannedAt||s.registeredAt||0);
+        if(!t)return false;
+        const thStr=new Date(t).toLocaleDateString("en-CA",{timeZone:"Asia/Bangkok"});
+        return thStr===selDate;
+      }).length;
+      setDebugInfo("📦 โหลดทั้งหมด: "+all.length+" | ✅ scanned: "+all.filter(s=>s.scannedByCustomer||s.tgNotified).length+" | 📅 วันที่เลือก: "+dayCount+"\n"+pathCounts.join(" | "));
+    }catch(e){setDebugInfo("❌ Error: "+e.message);}
     setLoadingData(false);
   },[selDate,sims]);
 
@@ -639,6 +656,7 @@ function Summary({sims,bot,chat,simType}){
       </div>
     </div>
 
+    {debugInfo&&<div style={{background:"rgba(0,0,0,0.4)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:8,padding:"8px 12px",marginBottom:12,fontSize:10,color:"#94a3b8",fontFamily:"monospace",whiteSpace:"pre-wrap",wordBreak:"break-all"}}>{debugInfo}</div>}
     {lastSent&&<div style={{background:"rgba(5,150,105,0.12)",border:"1px solid rgba(5,150,105,0.3)",borderRadius:10,padding:"8px 14px",marginBottom:12,fontSize:12,color:"#6ee7b7"}}>✅ ส่งล่าสุดเวลา {lastSent} น.</div>}
 
     <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:16}}>
