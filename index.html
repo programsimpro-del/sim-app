@@ -19,7 +19,7 @@ body{background:linear-gradient(160deg,#0a0a1a,#0f172a,#1a0a2e);min-height:100vh
 <body>
 <div id="root"></div>
 <script type="text/babel">
-const {useState,useEffect,useRef,useCallback}=React;
+const {useState,useEffect,useRef,useCallback,useMemo}=React;
 
 // Firebase
 const FB="https://simtracker-3a70d-default-rtdb.asia-southeast1.firebasedatabase.app";
@@ -559,31 +559,45 @@ function Summary({sims,bot,chat,simType}){
       });
       const all=Object.values(map);
       setAllScanned(all);
-      // debug: นับยอดในวันที่เลือก
-      const dayCount=all.filter(s=>{
-        if(!s.scannedByCustomer&&!s.tgNotified)return false;
+      // debug: วิเคราะห์ timestamp
+      const scannedAll=all.filter(s=>s.scannedByCustomer||s.tgNotified);
+      const samples=scannedAll.slice(0,5).map(s=>{
+        const t=Number(s.scannedAt||s.registeredAt||0);
+        const thStr=t?new Date(t).toLocaleDateString("en-CA",{timeZone:"Asia/Bangkok"}):"NO_TS";
+        return thStr+"("+s.trackingNo+")";
+      });
+      const dayCount=scannedAll.filter(s=>{
         const t=Number(s.scannedAt||s.registeredAt||0);
         if(!t)return false;
-        const thStr=new Date(t).toLocaleDateString("en-CA",{timeZone:"Asia/Bangkok"});
-        return thStr===selDate;
+        return new Date(t).toLocaleDateString("en-CA",{timeZone:"Asia/Bangkok"})===selDate;
       }).length;
-      setDebugInfo("📦 โหลดทั้งหมด: "+all.length+" | ✅ scanned: "+all.filter(s=>s.scannedByCustomer||s.tgNotified).length+" | 📅 วันที่เลือก: "+dayCount+"\n"+pathCounts.join(" | "));
+      const noTs=scannedAll.filter(s=>!s.scannedAt&&!s.registeredAt).length;
+      setDebugInfo("โหลด:"+all.length+" scanned:"+scannedAll.length+" วันนี้:"+dayCount+" ไม่มีTS:"+noTs+"\nตัวอย่างวันที่: "+samples.join(" | ")+"\n"+pathCounts.slice(0,6).join(" | "));
     }catch(e){setDebugInfo("❌ Error: "+e.message);}
     setLoadingData(false);
   },[selDate,sims]);
 
   useEffect(()=>{loadAll();},[selDate]);
 
-  const todayScanned=allScanned.filter(s=>{
-    if(!s.scannedByCustomer&&!s.tgNotified)return false;
-    if(!s.scannedAt&&!s.registeredAt)return isToday;
-    const t=Number(s.scannedAt||s.registeredAt||0);
-    if(!t)return isToday;
-    // แปลง timestamp เป็น timezone ไทย แล้วเช็ควันที่
-    const d=new Date(t);
-    const thStr=d.toLocaleDateString("en-CA",{timeZone:"Asia/Bangkok"}); // YYYY-MM-DD
-    return thStr===selDate;
-  });
+  const todayScanned=useMemo(()=>{
+    // deduplicate โดย serial — ถ้าซิมเดียวกันอยู่ใน 2 path ให้นับแค่ 1
+    const seen=new Set();
+    return allScanned.filter(s=>{
+      if(!s.scannedByCustomer&&!s.tgNotified)return false;
+      const t=Number(s.scannedAt||s.registeredAt||0);
+      let match=false;
+      if(t>0){
+        const thStr=new Date(t).toLocaleDateString("en-CA",{timeZone:"Asia/Bangkok"});
+        match=(thStr===selDate);
+      } else {
+        match=isToday;
+      }
+      if(!match)return false;
+      if(seen.has(s.serial))return false;
+      seen.add(s.serial);
+      return true;
+    });
+  },[allScanned,selDate,isToday]);
 
   const CODES=[
     {code:"K",label:"True (K)",emoji:"🔴"},
@@ -599,17 +613,22 @@ function Summary({sims,bot,chat,simType}){
   };
   const byCode=code=>todayScanned.filter(s=>getCode(s)===code);
 
-  // สรุปรายวันจากข้อมูลทั้งหมด
-  const sm={};
-  allScanned.filter(s=>s.scannedByCustomer&&s.scannedAt).forEach(s=>{
-    try{
-      const d=new Date(Number(s.scannedAt));
-      const k=d.toISOString().slice(0,10);
-      if(!sm[k])sm[k]={sc:0,list:[]};
-      sm[k].sc++;
-      sm[k].list.push(s);
-    }catch(e){}
-  });
+  // สรุปรายวัน — deduplicate by serial
+  const sm=useMemo(()=>{
+    const map={};
+    const seen={};
+    allScanned.filter(s=>s.scannedByCustomer||s.tgNotified).forEach(s=>{
+      const t=Number(s.scannedAt||s.registeredAt||0);
+      if(!t)return;
+      const thStr=new Date(t).toLocaleDateString("en-CA",{timeZone:"Asia/Bangkok"});
+      if(!seen[thStr])seen[thStr]=new Set();
+      if(seen[thStr].has(s.serial))return;
+      seen[thStr].add(s.serial);
+      if(!map[thStr])map[thStr]={sc:0};
+      map[thStr].sc++;
+    });
+    return map;
+  },[allScanned]);
 
   const send=async()=>{
     if(!bot||!chat){alert("กรุณาตั้งค่า Bot Token และ Chat ID ก่อน");return;}
