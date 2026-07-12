@@ -518,29 +518,33 @@ function Summary({sims,bot,chat,simType}){
   const endOfDay=startOfDay+86400000;
   const ym=selDate.slice(0,7).replace("-","");
 
-  // โหลดข้อมูลจากทุก path รวม archived และ history
+  // โหลดข้อมูลจากทุก path รวม archived และ history หลายเดือน
   const loadAll=useCallback(async()=>{
     setLoadingData(true);
     try{
-      const paths=["/sims_plain","/sims_free","/sims_plain_archived","/sims_free_archived","/history/"+ym];
-      const results=await Promise.all(paths.map(p=>Promise.race([fbG(p),new Promise((_,r)=>setTimeout(()=>r(null),6000))]).catch(()=>null)));
+      // สร้าง history path ย้อนหลัง 3 เดือน เพื่อไม่ตกหล่น
+      const histPaths=[];
+      for(let i=0;i<3;i++){
+        const d=new Date(selDate+"T12:00:00+07:00");
+        d.setMonth(d.getMonth()-i);
+        histPaths.push("/history/"+d.toISOString().slice(0,7).replace("-",""));
+      }
+      const paths=["/sims_plain","/sims_free","/sims_plain_archived","/sims_free_archived","/sims",...histPaths];
+      const results=await Promise.all(paths.map(p=>Promise.race([fbG(p),new Promise((_,r)=>setTimeout(()=>r(null),8000))]).catch(()=>null)));
       const map={};
       results.forEach(d=>{
         if(!d||typeof d!=="object"||d.error)return;
         Object.values(d).filter(s=>s&&s.serial).forEach(s=>{
           const ex=map[s.serial];
           if(!ex)map[s.serial]={...s};
-          else{
-            // merge: รักษาค่า scannedByCustomer=true และ scannedAt
-            map[s.serial]={
-              ...ex,...s,
-              scannedByCustomer:ex.scannedByCustomer||!!s.scannedByCustomer,
-              scannedAt:ex.scannedAt||s.scannedAt,
-            };
-          }
+          else map[s.serial]={...ex,...s,
+            scannedByCustomer:ex.scannedByCustomer||!!s.scannedByCustomer,
+            scannedAt:ex.scannedAt||s.scannedAt,
+            tgNotified:ex.tgNotified||!!s.tgNotified,
+          };
         });
       });
-      // รวมกับ sims ใน state ปัจจุบัน (อาจมีข้อมูลใหม่ที่ยังไม่ sync)
+      // รวมกับ sims ใน state ปัจจุบัน
       sims.forEach(s=>{
         const ex=map[s.serial];
         if(!ex)map[s.serial]={...s};
@@ -554,10 +558,14 @@ function Summary({sims,bot,chat,simType}){
   useEffect(()=>{loadAll();},[selDate]);
 
   const todayScanned=allScanned.filter(s=>{
-    if(!s.scannedByCustomer)return false;
-    if(!s.scannedAt)return isToday; // ถ้าไม่มี scannedAt แสดงเฉพาะวันนี้
-    const t=Number(s.scannedAt);
-    return t>=startOfDay&&t<endOfDay;
+    if(!s.scannedByCustomer&&!s.tgNotified)return false;
+    if(!s.scannedAt&&!s.registeredAt)return isToday;
+    const t=Number(s.scannedAt||s.registeredAt||0);
+    if(!t)return isToday;
+    // แปลง timestamp เป็น timezone ไทย แล้วเช็ควันที่
+    const d=new Date(t);
+    const thStr=d.toLocaleDateString("en-CA",{timeZone:"Asia/Bangkok"}); // YYYY-MM-DD
+    return thStr===selDate;
   });
 
   const CODES=[
