@@ -510,100 +510,103 @@ function SimList({sims,onDelete,onUpdatePhone}){
 function Summary({sims,bot,chat,simType}){
   const [selDate,setSelDate]=useState(()=>todayS());
   const [sending,setSending]=useState(false),[lastSent,setLastSent]=useState("");
-  const [allScanned,setAllScanned]=useState([]);
+  const [histMap,setHistMap]=useState({});   // serial -> record จาก history (แม่นที่สุด)
+  const [simsMap,setSimsMap]=useState({});   // serial -> record จาก sims_plain/free
   const [loadingData,setLoadingData]=useState(false);
   const today=todayS();
   const isToday=selDate===today;
-  const startOfDay=new Date(selDate+"T00:00:00+07:00").getTime();
-  const endOfDay=startOfDay+86400000;
-  const ym=selDate.slice(0,7).replace("-","");
 
-  const [debugInfo,setDebugInfo]=useState("");
-
-  // โหลดข้อมูลจากทุก path รวม archived และ history หลายเดือน
   const loadAll=useCallback(async()=>{
     setLoadingData(true);
-    setDebugInfo("⏳ กำลังโหลด...");
     try{
-      // history ย้อนหลัง 6 เดือน
+      // โหลด history 3 เดือนย้อนหลัง (มี registeredAt ที่ถูกต้อง)
       const histPaths=[];
-      for(let i=0;i<6;i++){
+      for(let i=0;i<3;i++){
         const d=new Date(selDate+"T12:00:00+07:00");
         d.setMonth(d.getMonth()-i);
         histPaths.push("/history/"+d.toISOString().slice(0,7).replace("-",""));
       }
-      const allPaths=["/sims_plain","/sims_free","/sims_plain_archived","/sims_free_archived","/sims",...histPaths];
-      const results=await Promise.all(allPaths.map(p=>
-        Promise.race([fbG(p),new Promise((_,r)=>setTimeout(()=>r(null),8000))]).catch(()=>null)
-      ));
-      const map={};
-      const pathCounts=[];
-      results.forEach((d,i)=>{
-        if(!d||typeof d!=="object"||d.error){pathCounts.push(allPaths[i]+":null");return;}
-        const vals=Object.values(d).filter(s=>s&&s.serial);
-        pathCounts.push(allPaths[i]+":"+vals.length);
-        vals.forEach(s=>{
-          const ex=map[s.serial];
-          if(!ex){map[s.serial]={...s};return;}
-          // history path มี scannedAt ที่ถูกต้องกว่า ใช้ค่าใหม่กว่าเสมอ
-          const exTs=Number(ex.scannedAt||ex.registeredAt||0);
-          const sTs=Number(s.scannedAt||s.registeredAt||0);
-          map[s.serial]={
-            ...ex,...s,
-            scannedByCustomer:ex.scannedByCustomer||!!s.scannedByCustomer,
-            tgNotified:ex.tgNotified||!!s.tgNotified,
-            // ใช้ timestamp ที่ใหม่กว่า (ตอนลูกค้าสแกนจริง ไม่ใช่ตอนเพิ่มซิม)
-            scannedAt:sTs>exTs?s.scannedAt:ex.scannedAt,
-            registeredAt:sTs>exTs?s.registeredAt:ex.registeredAt,
-          };
+      // โหลด sims ปัจจุบัน (สำหรับซิมที่ยังไม่ถูกลบ)
+      const simsPaths=["/sims_plain","/sims_free","/sims"];
+      const [histResults,simsResults]=await Promise.all([
+        Promise.all(histPaths.map(p=>Promise.race([fbG(p),new Promise((_,r)=>setTimeout(()=>r(null),8000))]).catch(()=>null))),
+        Promise.all(simsPaths.map(p=>Promise.race([fbG(p),new Promise((_,r)=>setTimeout(()=>r(null),8000))]).catch(()=>null))),
+      ]);
+      // สร้าง histMap — ใช้ registeredAt เป็น timestamp หลัก
+      const hm={};
+      histResults.forEach(d=>{
+        if(!d||typeof d!=="object"||d.error)return;
+        Object.values(d).filter(s=>s&&s.serial).forEach(s=>{
+          const ex=hm[s.serial];
+          // ถ้ามีอยู่แล้วให้เก็บ timestamp ที่ใหม่กว่า
+          if(!ex){hm[s.serial]={...s};return;}
+          const exTs=Number(ex.registeredAt||ex.scannedAt||0);
+          const sTs=Number(s.registeredAt||s.scannedAt||0);
+          if(sTs>exTs)hm[s.serial]={...ex,...s};
         });
       });
-      sims.forEach(s=>{
-        const ex=map[s.serial];
-        if(!ex)map[s.serial]={...s};
-        else map[s.serial]={...ex,...s,scannedByCustomer:ex.scannedByCustomer||!!s.scannedByCustomer,scannedAt:ex.scannedAt||s.scannedAt};
+      // สร้าง simsMap — ใช้สำหรับซิมที่ยังอยู่ใน sims_plain (ยังไม่ถูกลบ)
+      const sm={};
+      simsResults.forEach(d=>{
+        if(!d||typeof d!=="object"||d.error)return;
+        Object.values(d).filter(s=>s&&s.serial).forEach(s=>{
+          if(!sm[s.serial])sm[s.serial]={...s};
+        });
       });
-      const all=Object.values(map);
-      setAllScanned(all);
-      // debug: วิเคราะห์ timestamp
-      const scannedAll=all.filter(s=>s.scannedByCustomer||s.tgNotified);
-      const samples=scannedAll.slice(0,5).map(s=>{
-        const t=Number(s.scannedAt||s.registeredAt||0);
-        const thStr=t?new Date(t).toLocaleDateString("en-CA",{timeZone:"Asia/Bangkok"}):"NO_TS";
-        return thStr+"("+s.trackingNo+")";
-      });
-      const dayCount=scannedAll.filter(s=>{
-        const t=Number(s.scannedAt||s.registeredAt||0);
-        if(!t)return false;
-        return new Date(t).toLocaleDateString("en-CA",{timeZone:"Asia/Bangkok"})===selDate;
-      }).length;
-      const noTs=scannedAll.filter(s=>!s.scannedAt&&!s.registeredAt).length;
-      setDebugInfo("โหลด:"+all.length+" scanned:"+scannedAll.length+" วันนี้:"+dayCount+" ไม่มีTS:"+noTs+"\nตัวอย่างวันที่: "+samples.join(" | ")+"\n"+pathCounts.slice(0,6).join(" | "));
-    }catch(e){setDebugInfo("❌ Error: "+e.message);}
+      setHistMap(hm);
+      setSimsMap(sm);
+    }catch(e){}
     setLoadingData(false);
-  },[selDate,sims]);
+  },[selDate]);
 
   useEffect(()=>{loadAll();},[selDate]);
 
+  // รวม history + sims — history มีความน่าเชื่อถือสูงกว่า
+  const allScanned=useMemo(()=>{
+    const map={};
+    // เริ่มจาก simsMap
+    Object.values(simsMap).forEach(s=>{map[s.serial]={...s};});
+    // history ทับทีหลัง (น่าเชื่อถือกว่า)
+    Object.values(histMap).forEach(s=>{
+      map[s.serial]={...map[s.serial],...s,
+        scannedByCustomer:true,
+        tgNotified:true,
+        // registeredAt จาก history ถูกต้องที่สุด
+        registeredAt:s.registeredAt||s.scannedAt,
+        scannedAt:s.registeredAt||s.scannedAt,
+      };
+    });
+    // เพิ่ม sims จาก state ที่อาจมีข้อมูลใหม่ที่ยังไม่ sync
+    sims.forEach(s=>{
+      if(!map[s.serial])map[s.serial]={...s};
+      else{
+        // อย่าทับ scannedAt ที่ถูกต้องจาก history
+        const keep=map[s.serial].scannedAt;
+        map[s.serial]={...map[s.serial],...s,scannedAt:keep||s.scannedAt};
+      }
+    });
+    return Object.values(map);
+  },[histMap,simsMap,sims]);
+
+  // filter วันที่เลือก — ใช้ registeredAt หรือ scannedAt
   const todayScanned=useMemo(()=>{
-    // deduplicate โดย serial — ถ้าซิมเดียวกันอยู่ใน 2 path ให้นับแค่ 1
     const seen=new Set();
     return allScanned.filter(s=>{
-      if(!s.scannedByCustomer&&!s.tgNotified)return false;
-      const t=Number(s.scannedAt||s.registeredAt||0);
-      let match=false;
-      if(t>0){
-        const thStr=new Date(t).toLocaleDateString("en-CA",{timeZone:"Asia/Bangkok"});
-        match=(thStr===selDate);
-      } else {
-        match=isToday;
+      if(!s.scannedByCustomer&&!s.tgNotified&&!histMap[s.serial])return false;
+      const t=Number(s.registeredAt||s.scannedAt||0);
+      if(!t){
+        // ซิมที่ไม่มี timestamp — ถ้าอยู่ใน history แสดงว่าเคยลงทะเบียนแล้ว
+        if(!histMap[s.serial])return false;
+        // ไม่รู้วันที่แน่นอน ข้ามไป
+        return false;
       }
-      if(!match)return false;
+      const thStr=new Date(t).toLocaleDateString("en-CA",{timeZone:"Asia/Bangkok"});
+      if(thStr!==selDate)return false;
       if(seen.has(s.serial))return false;
       seen.add(s.serial);
       return true;
     });
-  },[allScanned,selDate,isToday]);
+  },[allScanned,histMap,selDate]);
 
   const CODES=[
     {code:"K",label:"True (K)",emoji:"🔴"},
@@ -619,22 +622,22 @@ function Summary({sims,bot,chat,simType}){
   };
   const byCode=code=>todayScanned.filter(s=>getCode(s)===code);
 
-  // สรุปรายวัน — deduplicate by serial
-  const sm=useMemo(()=>{
+  // ตารางสรุปรายวัน จาก history ทั้งหมด
+  const dailySm=useMemo(()=>{
     const map={};
     const seen={};
-    allScanned.filter(s=>s.scannedByCustomer||s.tgNotified).forEach(s=>{
-      const t=Number(s.scannedAt||s.registeredAt||0);
+    Object.values(histMap).forEach(s=>{
+      const t=Number(s.registeredAt||s.scannedAt||0);
       if(!t)return;
-      const thStr=new Date(t).toLocaleDateString("en-CA",{timeZone:"Asia/Bangkok"});
-      if(!seen[thStr])seen[thStr]=new Set();
-      if(seen[thStr].has(s.serial))return;
-      seen[thStr].add(s.serial);
-      if(!map[thStr])map[thStr]={sc:0};
-      map[thStr].sc++;
+      const d=new Date(t).toLocaleDateString("en-CA",{timeZone:"Asia/Bangkok"});
+      if(!seen[d])seen[d]=new Set();
+      if(seen[d].has(s.serial))return;
+      seen[d].add(s.serial);
+      if(!map[d])map[d]=0;
+      map[d]++;
     });
     return map;
-  },[allScanned]);
+  },[histMap]);
 
   const send=async()=>{
     if(!bot||!chat){alert("กรุณาตั้งค่า Bot Token และ Chat ID ก่อน");return;}
@@ -681,7 +684,6 @@ function Summary({sims,bot,chat,simType}){
       </div>
     </div>
 
-    {debugInfo&&<div style={{background:"rgba(0,0,0,0.4)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:8,padding:"8px 12px",marginBottom:12,fontSize:10,color:"#94a3b8",fontFamily:"monospace",whiteSpace:"pre-wrap",wordBreak:"break-all"}}>{debugInfo}</div>}
     {lastSent&&<div style={{background:"rgba(5,150,105,0.12)",border:"1px solid rgba(5,150,105,0.3)",borderRadius:10,padding:"8px 14px",marginBottom:12,fontSize:12,color:"#6ee7b7"}}>✅ ส่งล่าสุดเวลา {lastSent} น.</div>}
 
     <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:16}}>
@@ -698,36 +700,38 @@ function Summary({sims,bot,chat,simType}){
     </div>
 
     <h4 style={{color:"#e2e8f0",fontSize:13,fontWeight:700,marginBottom:8}}>✅ ลงทะเบียนวันที่ {selDate} ({todayScanned.length} ราย)</h4>
-    {todayScanned.length===0
-      ?<div style={{textAlign:"center",padding:20,color:"#8b8fa8"}}>ไม่มีข้อมูลลงทะเบียนในวันที่เลือก</div>
-      :CODES.filter(c=>byCode(c.code).length>0).map(c=>(
-        <div key={c.code||"none"} style={{marginBottom:14}}>
-          <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:6,padding:"6px 12px",background:"rgba(255,255,255,0.06)",borderRadius:8}}>
-            <span style={{fontSize:15}}>{c.emoji}</span>
-            <span style={{color:"#e2e8f0",fontWeight:700,fontSize:13}}>{c.label}</span>
-            <span style={{background:"rgba(167,139,250,0.2)",color:"#a78bfa",borderRadius:99,fontSize:11,fontWeight:700,padding:"1px 8px",marginLeft:"auto"}}>{byCode(c.code).length} ราย</span>
-          </div>
-          {byCode(c.code).map((s,i)=>(
-            <div key={s.serial} style={{background:"rgba(5,150,105,0.08)",border:"1px solid rgba(5,150,105,0.2)",borderRadius:10,padding:"10px 14px",marginBottom:6}}>
-              <div style={{color:"white",fontFamily:"monospace",fontSize:12,fontWeight:700}}>{i+1}. {s.serial}</div>
-              <div style={{color:"#6ee7b7",fontSize:11}}>📞 {s.phone||"รับหลังลงทะเบียน"}</div>
-              <div style={{color:"#a78bfa",fontSize:11}}>🔢 {s.trackingNo}</div>
-              {s.scannedAt&&<div style={{color:"#8b8fa8",fontSize:11}}>⏰ {new Date(Number(s.scannedAt)).toLocaleTimeString("th-TH")}</div>}
+    {loadingData
+      ?<div style={{textAlign:"center",padding:20,color:"#8b8fa8"}}>⏳ กำลังโหลด...</div>
+      :todayScanned.length===0
+        ?<div style={{textAlign:"center",padding:20,color:"#8b8fa8"}}>ไม่มีข้อมูลลงทะเบียนในวันที่เลือก</div>
+        :CODES.filter(c=>byCode(c.code).length>0).map(c=>(
+          <div key={c.code||"none"} style={{marginBottom:14}}>
+            <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:6,padding:"6px 12px",background:"rgba(255,255,255,0.06)",borderRadius:8}}>
+              <span style={{fontSize:15}}>{c.emoji}</span>
+              <span style={{color:"#e2e8f0",fontWeight:700,fontSize:13}}>{c.label}</span>
+              <span style={{background:"rgba(167,139,250,0.2)",color:"#a78bfa",borderRadius:99,fontSize:11,fontWeight:700,padding:"1px 8px",marginLeft:"auto"}}>{byCode(c.code).length} ราย</span>
             </div>
-          ))}
-        </div>
-      ))
+            {byCode(c.code).map((s,i)=>(
+              <div key={s.serial} style={{background:"rgba(5,150,105,0.08)",border:"1px solid rgba(5,150,105,0.2)",borderRadius:10,padding:"10px 14px",marginBottom:6}}>
+                <div style={{color:"white",fontFamily:"monospace",fontSize:12,fontWeight:700}}>{i+1}. {s.serial}</div>
+                <div style={{color:"#6ee7b7",fontSize:11}}>📞 {s.phone||"รับหลังลงทะเบียน"}</div>
+                <div style={{color:"#a78bfa",fontSize:11}}>🔢 {s.trackingNo}</div>
+                {(s.registeredAt||s.scannedAt)&&<div style={{color:"#8b8fa8",fontSize:11}}>⏰ {new Date(Number(s.registeredAt||s.scannedAt)).toLocaleTimeString("th-TH")}</div>}
+              </div>
+            ))}
+          </div>
+        ))
     }
 
-    <h4 style={{color:"#e2e8f0",fontSize:13,fontWeight:700,margin:"16px 0 8px"}}>📅 สรุปรายวัน (ทุกวัน)</h4>
-    {Object.keys(sm).length===0
-      ?<div style={{textAlign:"center",padding:16,color:"#8b8fa8",fontSize:13}}>ยังไม่มีข้อมูลลงทะเบียน</div>
+    <h4 style={{color:"#e2e8f0",fontSize:13,fontWeight:700,margin:"16px 0 8px"}}>📅 สรุปรายวัน (จาก history)</h4>
+    {Object.keys(dailySm).length===0
+      ?<div style={{textAlign:"center",padding:16,color:"#8b8fa8",fontSize:13}}>ยังไม่มีข้อมูล</div>
       :<table style={{width:"100%",borderCollapse:"collapse"}}>
         <thead><tr>{["วันที่","ลงทะเบียน"].map(h=><th key={h} style={C.th}>{h}</th>)}</tr></thead>
-        <tbody>{Object.entries(sm).sort((a,b)=>b[0].localeCompare(a[0])).map(([date,v])=>(
+        <tbody>{Object.entries(dailySm).sort((a,b)=>b[0].localeCompare(a[0])).map(([date,cnt])=>(
           <tr key={date} style={{background:date===today?"rgba(5,150,105,0.08)":"transparent",cursor:"pointer"}} onClick={()=>setSelDate(date)}>
             <td style={{...C.td,color:date===today?"#6ee7b7":"#a5b4fc",textDecoration:"underline"}}>{date}{date===today?" (วันนี้)":""}</td>
-            <td style={{...C.td,textAlign:"center",color:"#6ee7b7",fontWeight:700}}>{v.sc}</td>
+            <td style={{...C.td,textAlign:"center",color:"#6ee7b7",fontWeight:700}}>{cnt}</td>
           </tr>
         ))}</tbody>
       </table>
