@@ -544,11 +544,17 @@ function Summary({sims,bot,chat,simType}){
         pathCounts.push(allPaths[i]+":"+vals.length);
         vals.forEach(s=>{
           const ex=map[s.serial];
-          if(!ex)map[s.serial]={...s};
-          else map[s.serial]={...ex,...s,
+          if(!ex){map[s.serial]={...s};return;}
+          // history path มี scannedAt ที่ถูกต้องกว่า ใช้ค่าใหม่กว่าเสมอ
+          const exTs=Number(ex.scannedAt||ex.registeredAt||0);
+          const sTs=Number(s.scannedAt||s.registeredAt||0);
+          map[s.serial]={
+            ...ex,...s,
             scannedByCustomer:ex.scannedByCustomer||!!s.scannedByCustomer,
-            scannedAt:ex.scannedAt||s.scannedAt,
             tgNotified:ex.tgNotified||!!s.tgNotified,
+            // ใช้ timestamp ที่ใหม่กว่า (ตอนลูกค้าสแกนจริง ไม่ใช่ตอนเพิ่มซิม)
+            scannedAt:sTs>exTs?s.scannedAt:ex.scannedAt,
+            registeredAt:sTs>exTs?s.registeredAt:ex.registeredAt,
           };
         });
       });
