@@ -1206,7 +1206,7 @@ function AllSimsTab({sims,onDelete}){
                   <td style={S.td}>{s.registered?<span style={{...S.tag,background:"rgba(5,150,105,0.2)",color:"#6ee7b7"}}>✅</span>:(s.sold?<span style={{...S.tag,background:"rgba(251,191,36,0.2)",color:"#fbbf24"}}>⏳</span>:"—")}</td>
                   <td style={S.td}>{s.customerRegPhone||"—"}</td>
                   <td style={S.td}>
-                    <button onClick={()=>{if(confirm("ลบ "+s.serial+" ?"))onDelete(s.serial);}} style={{...S.btnRed,padding:"4px 8px"}}>ลบ</button>
+                    <button onClick={()=>{if(window.confirm("ลบซิม "+s.serial+" ออกจากระบบ?"))onDelete(s.serial);}} style={{...S.btnRed,padding:"4px 10px",fontSize:12}}>🗑️ ลบ</button>
                   </td>
                 </tr>
               ))}
@@ -1347,17 +1347,10 @@ function App(){
     toast("💰 บันทึกการขายแล้ว");
   },[]);
 
-  // Register
+  // Register → ลบออกจาก Firebase ทันทีหลังลงทะเบียน
   const handleRegister=useCallback((serial,info)=>{
-    setSims(prev=>{
-      const next=prev.map(s=>s.serial===serial?{...s,...info,registered:true}:s);
-      const obj={};next.forEach(s=>{obj[toKey(s.serial)]=s;});
-      fbS(COLLECTION,obj);
-      return next;
-    });
-    toast("✅ บันทึกการลงทะเบียนแล้ว");
-    // Also send Telegram
     const sim=sims.find(s=>s.serial===serial);
+    // ส่ง Telegram ก่อนลบ
     if(sim&&tgBot&&tgChat){
       const now=new Date().toLocaleString("th-TH",{timeZone:"Asia/Bangkok",hour12:false});
       const msg=`📲 ลูกค้าลงทะเบียนซิมแล้ว!\n📋 Serial: ${serial}\n📍 จังหวัด: ${sim.province} (โค้ด ${sim.partnerCode})\n👤 ลูกค้า: ${sim.customerName||"-"}\n🛒 ช่องทาง: ${sim.platform||"-"}\n📞 เบอร์โทร: ${info.customerRegPhone||"-"}\n⏰ เวลา: ${now}`;
@@ -1366,6 +1359,13 @@ function App(){
         body:JSON.stringify({chat_id:tgChat,text:msg})
       }).catch(()=>{});
     }
+    // ลบออกจาก Firebase และ state ทันที
+    setSims(prev=>{
+      const next=prev.filter(s=>s.serial!==serial);
+      fbD(COLLECTION+"/"+toKey(serial));
+      return next;
+    });
+    toast("✅ ลงทะเบียนสำเร็จ — ลบซิมออกจากระบบแล้ว");
   },[sims,tgBot,tgChat]);
 
   // Import PDF orders
