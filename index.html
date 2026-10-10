@@ -95,15 +95,20 @@ function parseShopeePageText(lines){
   const oM=txt.match(/Shopee\s+Order\s+No[.\s:]*([A-Z0-9]+)/i)||txt.match(/Order\s+No[.\s:]*([A-Z0-9]+)/i)||txt.match(/([0-9]{10,}[A-Z0-9]+)/);
   if(oM)orderId=norm(oM[1]);
   let trackingNo="";
-  const tM=txt.match(/TH[A-Z0-9]{10,}/)||txt.match(/Tracking[^:]*:\s*([A-Z0-9]+)/i);
-  if(tM)trackingNo=norm(tM[0]||tM[1]);
+  // Shopee SPEED tracking = THxxxxxx at top of label
+  const tM=txt.match(/\b(TH[A-Z0-9]{8,})\b/)||txt.match(/Tracking[^:]*:\s*([A-Z0-9]+)/i);
+  if(tM)trackingNo=norm(tM[1]||tM[0]);
   let customerName="",customerAddr="";
-  const toIdx=lines.findIndex(l=>/(^ถึง|^To\s*:)/i.test(norm(l)));
+  // Shopee format: "ผูรับ (TO)" label, then name on NEXT line, then address
+  const toIdx=lines.findIndex(l=>/ผ[ูุ]ร[ับ]{1,2}\s*\(?TO\)?|^ถึง|^To\s*:/i.test(l.trim()));
   if(toIdx>=0){
-    customerName=norm(lines[toIdx]).replace(/^ถึง\s*:?\s*/i,"").replace(/^To\s*:\s*/i,"");
-    const stopKw=/^(จาก|From|Ship by|Shopee|Flash|Tracking|เก็บเงิน|ไม่ต้อง|COD|สินค้า|Product|ราคา|รวม)/i;
+    // name is on the next non-empty line after the label
+    let nameIdx=toIdx+1;
+    while(nameIdx<lines.length&&!lines[nameIdx].trim())nameIdx++;
+    customerName=norm(lines[nameIdx]||"");
+    const stopKw=/^(ผ[ูุ]ส่ง|FROM|PICKUP|SHIP BY|NOTE|Shopee Order|Flash|Tracking|เก็บเงิน|ไม่ต้อง|COD|สินค้า|Product|ราคา|รวม|#|DROP|ROS|BG)/i;
     let addrLines=[];
-    for(let i=toIdx+1;i<Math.min(toIdx+8,lines.length);i++){
+    for(let i=nameIdx+1;i<Math.min(nameIdx+8,lines.length);i++){
       const l=norm(lines[i]);
       if(!l)continue;
       if(stopKw.test(l))break;
@@ -202,40 +207,58 @@ async function parseShippingLabelPdf(file){
     if(lines.length<2)continue;
     const txt=lines.join(" ").replace(/\s+/g," ").trim();
     let name="",address="",orderId="",tracking="",phone="";
-    // Recipient
-    const recipM=txt.match(/ผู้รับ\s*:?\s*([^\d][^,]{2,30}?)(?:\s+\d{3}|\s+Tel|\s+โทร|,|$)/i);
-    if(recipM)name=recipM[1].trim();
-    // "ถึง" pattern
-    const toIdx=lines.findIndex(l=>/(^ถึง|^To\s*:)/i.test(l.trim()));
-    if(toIdx>=0&&!name){
-      name=lines[toIdx].trim().replace(/^ถึง\s*:?\s*/i,"").replace(/^To\s*:\s*/i,"");
-      if(!name&&lines[toIdx+1])name=lines[toIdx+1].trim();
+
+    // ── Tracking: TH... at line start (Shopee SPEED format)
+    for(const pat of [/\b(TH[A-Z0-9]{8,})\b/,/\b(SP[A-Z0-9]{12,})\b/,/\b([0-9]{20,})\b/,/(?:Tracking|เลขพัสดุ)[^:]*:?\s*([A-Z0-9]{10,30})/i]){
+      const m=txt.match(pat);if(m){tracking=(m[1]||m[0]).trim();break;}
     }
-    // Address (Thai postal pattern)
-    const addrM=txt.match(/(\d+[\d\/\-]*\s+(?:หมู่|ม\.|ถ\.|แขวง|ต\.|อ\.|จ\.)[^,]{5,80}?\d{5})/i);
-    if(addrM)address=addrM[1].trim();
-    if(!address){
-      const postM=txt.match(/([ก-๙\s\d\/\-,]+\d{5})/);
-      if(postM)address=postM[1].trim().substring(0,120);
+    // Also try first line that starts with TH
+    if(!tracking){const tl=lines.find(l=>/^TH[A-Z0-9]{8}/.test(l.trim()));if(tl)tracking=tl.trim();}
+
+    // ── Shopee / SPEED format: "ผูรับ (TO)" label → name on next line → address lines
+    const toIdx=lines.findIndex(l=>/ผ[ูุ]ร[ับ]{1,2}|ผู้รับ|\(TO\)|^ถึง|^To\s*:/i.test(l.trim()));
+    if(toIdx>=0){
+      let ni=toIdx+1;
+      while(ni<lines.length&&!lines[ni].trim())ni++;
+      const candidate=lines[ni]?.trim()||"";
+      // skip if candidate looks like a label or tracking
+      if(candidate&&!/^(SPEED|Flash|Kerry|Ninja|J&T|DHL|TH[A-Z0-9]|ผ[ูุ]ส่ง|FROM|PICKUP)/i.test(candidate)){
+        name=candidate;
+      }
+      // collect address: next lines until stop keywords
+      const stopKw=/^(ผ[ูุ]ส่ง|FROM|PICKUP|SHIP|NOTE|Shopee Order|Order No|Flash|Track|เก็บ|ไม่ต้อง|COD|สินค้า|Product|ราคา|รวม|#|DROP|ROS|BG|SPEED|[A-Z]{2}\d{2})/i;
+      let addrLines=[];
+      for(let i=ni+1;i<Math.min(ni+10,lines.length);i++){
+        const l=lines[i].trim();
+        if(!l)continue;
+        if(stopKw.test(l))break;
+        addrLines.push(l);
+      }
+      address=addrLines.join(" ").replace(/\s+/g," ").trim();
     }
-    // Order ID
-    for(const pat of [/Order\s*(?:No\.?|ID|#)?\s*:?\s*([A-Z0-9]{8,30})/i,/หมายเลขคำสั่งซื้อ\s*:?\s*([A-Z0-9]{8,30})/i,/([0-9]{8,10}[A-Z]{2,8}[A-Z0-9]{2,10})/]){
-      const m=txt.match(pat);if(m){orderId=m[1].trim();break;}
-    }
-    // Tracking
-    for(const pat of [/(?:Tracking|เลขพัสดุ)\s*(?:No\.?)?\s*:?\s*([A-Z0-9]{10,30})/i,/\b(TH[A-Z0-9]{14,25})\b/,/\b(SP[A-Z0-9]{12,25})\b/,/\b([0-9]{20})\b/]){
-      const m=txt.match(pat);if(m){tracking=m[1].trim();break;}
-    }
-    // Phone
-    const phoneM=txt.match(/(?:Tel|โทร|Phone)\s*:?\s*(0[6-9]\d[\d\-\s]{7,11})/i);
-    if(phoneM)phone=phoneM[1].replace(/[\s\-]/g,"").substring(0,10);
-    // Fallback name
+
+    // ── Order ID: Shopee Order No. pattern
+    const oM=txt.match(/Shopee\s+Order\s+No\.?\s*([A-Z0-9]{8,30})/i)
+      ||txt.match(/Order\s+No\.?\s*([A-Z0-9]{8,30})/i)
+      ||txt.match(/([0-9]{6}[A-Z0-9]{6,20})/);
+    if(oM)orderId=(oM[1]||oM[0]).trim();
+
+    // ── Phone
+    const phoneM=txt.match(/(?:Tel|โทร|Phone)\s*:?\s*(0[6-9]\d{8})/i)
+      ||txt.match(/\b(0[6-9]\d{8})\b/);
+    if(phoneM)phone=phoneM[1].replace(/[\s\-]/g,"");
+
+    // ── Fallback name: first Thai-only short line if still empty
     if(!name){
-      for(const l of lines.slice(0,15)){
+      for(const l of lines.slice(0,20)){
         const lt=l.trim();
-        if(/^[ก-๙]{2,}/u.test(lt)&&lt.length<30&&!/Order|Track|ขนส่ง|บริษัท|ร้าน|จาก/i.test(lt)){name=lt;break;}
+        if(/^[ก-๙a-zA-Z][ก-๙a-zA-Z\s]{2,}$/.test(lt)&&lt.length>=3&&lt.length<=35
+          &&!/SPEED|Flash|Kerry|Ninja|Shopee|TikTok|Lazada|Order|Track|ขนส่ง|จาก|ส่ง|PICKUP|SHIP|FROM|COD|NOTE|DROP/i.test(lt)){
+          name=lt;break;
+        }
       }
     }
+
     if(name||orderId||tracking)results.push({name:name||"ไม่ระบุ",address,phone,orderId,tracking});
   }
   return results;
