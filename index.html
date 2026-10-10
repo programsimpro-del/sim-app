@@ -77,7 +77,8 @@ const fmtDate=ts=>{
   return new Date(ts).toLocaleString("th-TH",{timeZone:"Asia/Bangkok",hour12:false,year:"numeric",month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"});
 };
 const todayBKK=()=>new Date().toLocaleDateString("en-CA",{timeZone:"Asia/Bangkok"});
-const norm=s=>String(s||"").replace(/\s+/g," ").trim();
+// Strip Shopee PUA font chars (U+F700–U+F8FF) then normalize whitespace
+const norm=s=>String(s||"").replace(/[-]/g,"").replace(/\s+/g," ").trim();
 
 // ──────────────────────────────────────────
 // PDF Parsing (Shopee / TikTok)
@@ -100,11 +101,13 @@ function parseShopeePageText(lines){
   if(tM)trackingNo=norm(tM[1]||tM[0]);
   let customerName="",customerAddr="";
   // Shopee format: "ผูรับ (TO)" label, then name on NEXT line, then address
-  const toIdx=lines.findIndex(l=>/ผ[ูุ]ร[ับ]{1,2}\s*\(?TO\)?|^ถึง|^To\s*:/i.test(l.trim()));
+  // PUA chars already stripped by extractPdfPages; use loose regex to catch all variants
+  const toIdx=lines.findIndex(l=>/ผ.?ร.?บ|\(TO\)|^ถ.?ง|^To\s*:/i.test(l.trim()));
   if(toIdx>=0){
-    // name is on the next non-empty line after the label
+    // name is on the next non-empty line after the label (skip zone codes like K01)
     let nameIdx=toIdx+1;
     while(nameIdx<lines.length&&!lines[nameIdx].trim())nameIdx++;
+    if(/^[A-Z]\d{2,3}$/.test(norm(lines[nameIdx]||"")))nameIdx++;
     customerName=norm(lines[nameIdx]||"");
     const stopKw=/^(ผ[ูุ]ส่ง|FROM|PICKUP|SHIP BY|NOTE|Shopee Order|Flash|Tracking|เก็บเงิน|ไม่ต้อง|COD|สินค้า|Product|ราคา|รวม|#|DROP|ROS|BG)/i;
     let addrLines=[];
@@ -166,10 +169,12 @@ async function extractPdfPages(file){
   const arrayBuffer=await file.arrayBuffer();
   const pdf=await pdfjsLib.getDocument({data:arrayBuffer}).promise;
   const pages=[];
+  // strip Shopee PUA font encoding chars before anything else
+  const stripPUA=s=>s.replace(/[-]/g,"");
   for(let i=1;i<=pdf.numPages;i++){
     const page=await pdf.getPage(i);
     const tc=await page.getTextContent();
-    const lines=tc.items.map(it=>it.str).filter(s=>s.trim());
+    const lines=tc.items.map(it=>stripPUA(it.str)).filter(s=>s.trim());
     pages.push(lines);
   }
   return pages;
@@ -216,11 +221,14 @@ async function parseShippingLabelPdf(file){
     if(!tracking){const tl=lines.find(l=>/^TH[A-Z0-9]{8}/.test(l.trim()));if(tl)tracking=tl.trim();}
 
     // ── Shopee / SPEED format: "ผูรับ (TO)" label → name on next line → address lines
-    const toIdx=lines.findIndex(l=>/ผ[ูุ]ร[ับ]{1,2}|ผู้รับ|\(TO\)|^ถึง|^To\s*:/i.test(l.trim()));
+    // Shopee uses PUA font chars that appear between Thai chars; strip before matching
+    const toIdx=lines.findIndex(l=>/ผ.?ร.?บ|\(TO\)|^ถ.?ง|^To\s*:/i.test(l.trim()));
     if(toIdx>=0){
       let ni=toIdx+1;
       while(ni<lines.length&&!lines[ni].trim())ni++;
-      const candidate=lines[ni]?.trim()||"";
+      let candidate=lines[ni]?.trim()||"";
+      // skip Shopee zone codes like K01, K02, F02, etc.
+      if(/^[A-Z]\d{2,3}$/.test(candidate)){ni++;candidate=lines[ni]?.trim()||"";}
       // skip if candidate looks like a label or tracking
       if(candidate&&!/^(SPEED|Flash|Kerry|Ninja|J&T|DHL|TH[A-Z0-9]|ผ[ูุ]ส่ง|FROM|PICKUP)/i.test(candidate)){
         name=candidate;
