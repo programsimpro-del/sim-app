@@ -78,7 +78,8 @@ const fmtDate=ts=>{
 };
 const todayBKK=()=>new Date().toLocaleDateString("en-CA",{timeZone:"Asia/Bangkok"});
 // Strip Shopee PUA font chars (U+F700–U+F8FF) then normalize whitespace
-const norm=s=>String(s||"").replace(/[-]/g,"").replace(/\s+/g," ").trim();
+const stripPUA=s=>String(s||"").replace(/[-]/g,"");
+const norm=s=>stripPUA(String(s||"")).replace(/\s+/g," ").trim();
 
 // ──────────────────────────────────────────
 // PDF Parsing (Shopee / TikTok)
@@ -169,12 +170,27 @@ async function extractPdfPages(file){
   const arrayBuffer=await file.arrayBuffer();
   const pdf=await pdfjsLib.getDocument({data:arrayBuffer}).promise;
   const pages=[];
-  // strip Shopee PUA font encoding chars before anything else
-  const stripPUA=s=>s.replace(/[-]/g,"");
   for(let i=1;i<=pdf.numPages;i++){
     const page=await pdf.getPage(i);
     const tc=await page.getTextContent();
-    const lines=tc.items.map(it=>stripPUA(it.str)).filter(s=>s.trim());
+    // PDF.js returns text fragments in draw order (NOT reading order).
+    // Shopee SPEED labels use a 2-column layout so naive order gives
+    // FROM before TO. Fix: group by Y-coordinate, sort each row by X.
+    const YGAP=4;
+    const items=tc.items
+      .map(it=>({str:stripPUA(it.str),x:it.transform[4],y:it.transform[5]}))
+      .filter(it=>it.str.trim());
+    const rows={};
+    for(const it of items){
+      const yk=String(Math.round(it.y/YGAP)*YGAP);
+      if(!rows[yk])rows[yk]=[];
+      rows[yk].push(it);
+    }
+    const lines=Object.entries(rows)
+      .sort((a,b)=>Number(b[0])-Number(a[0]))
+      .map(([,frags])=>frags.sort((a,b)=>a.x-b.x)
+        .map(f=>f.str).join("").trim())
+      .filter(Boolean);
     pages.push(lines);
   }
   return pages;
