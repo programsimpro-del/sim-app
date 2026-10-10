@@ -104,10 +104,10 @@ function parseShopeePageText(lines){
   // PUA chars already stripped by extractPdfPages; use loose regex to catch all variants
   const toIdx=lines.findIndex(l=>/ผ.?ร.?บ|\(TO\)|^ถ.?ง|^To\s*:/i.test(l.trim()));
   if(toIdx>=0){
-    // name is on the next non-empty line after the label (skip zone codes like K01)
+    // name is on the next non-empty line after the label (skip zone codes K01, "(TO)", etc.)
     let nameIdx=toIdx+1;
-    while(nameIdx<lines.length&&!lines[nameIdx].trim())nameIdx++;
-    if(/^[A-Z]\d{2,3}$/.test(norm(lines[nameIdx]||"")))nameIdx++;
+    while(nameIdx<lines.length&&!norm(lines[nameIdx]))nameIdx++;
+    while(nameIdx<lines.length&&/^([A-Z]\d{2,3}|\(TO\)|TO\)|SPEED|FROM|ผ.?ส.?ง)/i.test(norm(lines[nameIdx]||""))){nameIdx++;}
     customerName=norm(lines[nameIdx]||"");
     const stopKw=/^(ผ[ูุ]ส่ง|FROM|PICKUP|SHIP BY|NOTE|Shopee Order|Flash|Tracking|เก็บเงิน|ไม่ต้อง|COD|สินค้า|Product|ราคา|รวม|#|DROP|ROS|BG)/i;
     let addrLines=[];
@@ -226,11 +226,12 @@ async function parseShippingLabelPdf(file){
     if(toIdx>=0){
       let ni=toIdx+1;
       while(ni<lines.length&&!lines[ni].trim())ni++;
-      let candidate=lines[ni]?.trim()||"";
+      let candidate=norm(lines[ni]||"");
       // skip Shopee zone codes like K01, K02, F02, etc.
-      if(/^[A-Z]\d{2,3}$/.test(candidate)){ni++;candidate=lines[ni]?.trim()||"";}
-      // skip if candidate looks like a label or tracking
-      if(candidate&&!/^(SPEED|Flash|Kerry|Ninja|J&T|DHL|TH[A-Z0-9]|ผ[ูุ]ส่ง|FROM|PICKUP)/i.test(candidate)){
+      if(/^[A-Z]\d{2,3}$/.test(candidate)){ni++;candidate=norm(lines[ni]||"");}
+      // skip if candidate looks like a label, tracking, or the "(TO)" label itself
+      const isLabel=/^(SPEED|Flash|Kerry|Ninja|J&T|DHL|TH[A-Z0-9]|ผ.?ส.?ง|FROM|PICKUP|\(TO\)|TO\))/i.test(candidate);
+      if(candidate&&!isLabel){
         name=candidate;
       }
       // collect address: next lines until stop keywords
